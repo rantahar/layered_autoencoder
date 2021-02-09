@@ -4,8 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-latent_dim = 100
-MODEL_PATH = "model"
+latent_dim = 128
+MODEL_PATH = "began"
 PATH = '../data/celeba'
 IMG_SIZE = 64
 BATCH_SIZE = 5
@@ -30,8 +30,7 @@ generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
 
 encoded = encoder(images)
 decoded = decoder(encoded)
-
-generated = decoder(generator(noise))
+generated = generator(noise)
 
 
 fig=plt.figure(figsize=(8, 8))
@@ -46,10 +45,6 @@ for i in range(4):
     fig.add_subplot(4, 3, 3*i+3)
     im = (generated[i] + 1) / 2
     plt.imshow(im)
-    #fig.add_subplot(4, 3, 3*i+3)
-    #im = encoded[i]
-    #im=np.concatenate((im, im, im), axis=2)
-    #plt.imshow(im)
 
 
 for ax in fig.axes:

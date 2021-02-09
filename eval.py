@@ -30,12 +30,10 @@ dataset = dataset.take(1).map(normalize)
 images = next(iter(dataset))[0]
 
 noise = tf.random.normal([16, latent_dim])
-encoder = tf.keras.models.load_model(MODEL_PATH+"/encoder")
-decoder = tf.keras.models.load_model(MODEL_PATH+"/decoder")
+discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
 generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
 
-encoded = encoder(images)
-decoded = decoder(encoded)
+decoded = discriminator(images)
 generated = generator(noise)
 
 

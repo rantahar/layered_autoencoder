@@ -12,7 +12,7 @@ from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-MODEL_PATH = 'began_32'
+MODEL_PATH = 'began_disc_8'
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.001
 gamma = 0.7
@@ -20,11 +20,10 @@ lambda_Kt = learning_rate
 beta = 0.5
 BATCH_SIZE = 32
 IMG_SIZE = 64
-critic_updates = 5
-dcl = 32
-gcl = 32
+dcl = 8
+gcl = 8
 latent_dim = 128
-gp_weight = 10
+disc_encoding_size = 8
 
 # Specific training parameters
 epochs = 4
@@ -32,7 +31,7 @@ SAVE_PATH = MODEL_PATH # for local
 DATA_PATH = 'celeba'
 save_every = 3500
 
-remote = True
+remote = False
 
 if remote:
 	print("Downloading data")
@@ -68,7 +67,7 @@ dataset = dataset.map(normalize)
 
 
 
-def make_decoder():
+def make_generator():
    in_shape=(latent_dim,)
    init = RandomNormal(stddev=0.02)
    model = Sequential()
@@ -89,11 +88,11 @@ def make_decoder():
    return model
 
 
-def make_encoder():
+def make_discriminator():
    in_shape=(IMG_SIZE,IMG_SIZE,3)
    init = RandomNormal(stddev=0.02)
    model = Sequential()
-   # normal
+   # encoding
    model.add(layers.Conv2D(dcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init, input_shape=in_shape))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
@@ -103,29 +102,28 @@ def make_encoder():
    model.add(layers.Conv2D(dcl*4, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
-   model.add(layers.Conv2D(dcl*8, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.Conv2D(disc_encoding_size, (4,4), strides=(1,1), padding='same', kernel_initializer=init, activation='tanh'))
+
+   # decoding
+   model.add(layers.Conv2D(dcl, (4,4), strides=(1,1), padding='same', kernel_initializer=init))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
-   model.add(layers.Flatten())
-   model.add(layers.Dense(latent_dim, activation='tanh',))
+   model.add(layers.Conv2DTranspose(dcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
+   model.add(layers.LeakyReLU(alpha=0.2))
+   model.add(layers.Conv2DTranspose(dcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
+   model.add(layers.LeakyReLU(alpha=0.2))
+   model.add(layers.Conv2DTranspose(3, (4,4), strides=(2,2), activation='tanh', padding='same', kernel_initializer=init))
    return model
 
-decoder = make_decoder()
-decoder.summary()
-encoder = make_encoder()
-encoder.summary()
-generator = make_decoder()
+discriminator = make_discriminator()
+discriminator.summary()
+generator = make_generator()
 generator.summary()
 
-def discriminator(image):
-	x = encoder(image)
-	x = decoder(x)
-	return x
 
-
-
-encoder_optimizer = tf.keras.optimizers.Adam(lr=learning_rate, beta_1=beta)
-decoder_optimizer = tf.keras.optimizers.Adam(lr=learning_rate, beta_1=beta)
+discriminator_optimizer = tf.keras.optimizers.Adam(lr=learning_rate, beta_1=beta)
 generator_optimizer = tf.keras.optimizers.Adam(lr=learning_rate, beta_1=beta)
 
 
@@ -135,7 +133,7 @@ generator_optimizer = tf.keras.optimizers.Adam(lr=learning_rate, beta_1=beta)
 def train(images, batch_size, Kt):
    noise = tf.random.normal([batch_size, latent_dim])
 
-   with tf.GradientTape() as enc_tape, tf.GradientTape() as dec_tape, tf.GradientTape() as gen_tape:
+   with tf.GradientTape() as disc_tape, tf.GradientTape() as gen_tape:
       fake_images = generator(noise)
       real_quality = discriminator(images)
       fake_quality = discriminator(fake_images)
@@ -148,10 +146,8 @@ def train(images, batch_size, Kt):
 
    generator_gradients = gen_tape.gradient(g_loss, generator.trainable_variables)
    generator_optimizer.apply_gradients(zip(generator_gradients, generator.trainable_variables))
-   encoder_gradients = enc_tape.gradient(d_loss, encoder.trainable_variables)
-   encoder_optimizer.apply_gradients(zip(encoder_gradients, encoder.trainable_variables))
-   decoder_gradients = dec_tape.gradient(d_loss, decoder.trainable_variables)
-   decoder_optimizer.apply_gradients(zip(decoder_gradients, decoder.trainable_variables))
+   discriminator_gradients = disc_tape.gradient(d_loss, discriminator.trainable_variables)
+   discriminator_optimizer.apply_gradients(zip(discriminator_gradients, discriminator.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
    if Kt < 0.001:
@@ -165,8 +161,7 @@ def train(images, batch_size, Kt):
 
 
 def save_models():
-   decoder.save(SAVE_PATH+"/decoder")
-   encoder.save(SAVE_PATH+"/encoder")
+   discriminator.save(SAVE_PATH+"/discriminator")
    generator.save(SAVE_PATH+"/generator")
    if remote:
       print("Uploading model")
@@ -176,7 +171,7 @@ def save_models():
     		os.path.join('gs://', GCP_BUCKET)
       ])
 
-# train the encoder and decoder
+# train the discriminator and decoder
 n_batches = tf.data.experimental.cardinality(dataset)
 Kt = gamma
 # manually enumerate epochs

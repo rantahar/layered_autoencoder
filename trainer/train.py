@@ -77,10 +77,13 @@ def make_decoder():
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Reshape((4, 4, gcl * 8)))
    model.add(layers.Conv2DTranspose(gcl*4, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2DTranspose(gcl*2, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2DTranspose(gcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2DTranspose(3, (4,4), strides=(2,2), activation='tanh', padding='same', kernel_initializer=init))
    return model
@@ -92,12 +95,16 @@ def make_encoder():
    model = Sequential()
    # normal
    model.add(layers.Conv2D(dcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init, input_shape=in_shape))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2D(dcl*2, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2D(dcl*4, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2D(dcl*8, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Flatten())
    model.add(layers.Dense(latent_dim, activation='tanh',))
@@ -147,8 +154,8 @@ def train(images, batch_size, Kt):
    decoder_optimizer.apply_gradients(zip(decoder_gradients, decoder.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
-   if Kt < 0.0:
-      Kt = 0.0
+   if Kt < 0.001:
+      Kt = 0.001
    if Kt > 1.0:
       Kt = 1.0
 
@@ -171,7 +178,7 @@ def save_models():
 
 # train the encoder and decoder
 n_batches = tf.data.experimental.cardinality(dataset)
-Kt = 0
+Kt = gamma
 # manually enumerate epochs
 for i in range(epochs):
    for j, element in enumerate(dataset):

@@ -12,22 +12,22 @@ from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-MODEL_PATH = 'began'
+MODEL_PATH = 'began_32'
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.001
-gamma = 0.3
+gamma = 0.7
 lambda_Kt = learning_rate
 beta = 0.5
 BATCH_SIZE = 32
 IMG_SIZE = 64
 critic_updates = 5
-dcl = 64
-gcl = 64
+dcl = 32
+gcl = 32
 latent_dim = 128
 gp_weight = 10
 
 # Specific training parameters
-epochs = 5
+epochs = 4
 SAVE_PATH = MODEL_PATH # for local
 DATA_PATH = 'celeba'
 save_every = 3500
@@ -49,7 +49,7 @@ if remote:
 	print(subprocess.list2cmdline(cmd))
 	subprocess.call(cmd)
 else:
-   save_every = 100
+   save_every = 1000
    DATA_PATH = '../data/' + DATA_PATH
 
 dataset = image_dataset_from_directory(DATA_PATH,

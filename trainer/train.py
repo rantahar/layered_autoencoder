@@ -15,7 +15,7 @@ from tensorflow.keras.preprocessing import image_dataset_from_directory
 MODEL_PATH = 'began_disc_8'
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.001
-gamma = 0.7
+gamma = 0.5
 lambda_Kt = learning_rate
 beta = 0.5
 BATCH_SIZE = 32
@@ -102,13 +102,15 @@ def make_discriminator():
    model.add(layers.Conv2D(dcl*4, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
-   model.add(layers.Conv2D(disc_encoding_size, (4,4), strides=(1,1), padding='same', kernel_initializer=init, activation='tanh'))
+   #model.add(layers.Conv2D(dcl*4, (4,4), strides=(1,1), padding='same', kernel_initializer=init))
+   #model.add(layers.BatchNormalization())
+   #model.add(layers.LeakyReLU(alpha=0.2))
 
    # decoding
-   model.add(layers.Conv2D(dcl, (4,4), strides=(1,1), padding='same', kernel_initializer=init))
-   model.add(layers.BatchNormalization())
-   model.add(layers.LeakyReLU(alpha=0.2))
-   model.add(layers.Conv2DTranspose(dcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   #model.add(layers.Conv2DTranspose(dcl*4, (4,4), strides=(1,1), padding='same', kernel_initializer=init))
+   #model.add(layers.BatchNormalization())
+   #model.add(layers.LeakyReLU(alpha=0.2))
+   model.add(layers.Conv2DTranspose(dcl*2, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2DTranspose(dcl, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
@@ -150,8 +152,8 @@ def train(images, batch_size, Kt):
    discriminator_optimizer.apply_gradients(zip(discriminator_gradients, discriminator.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
-   if Kt < 0.001:
-      Kt = 0.001
+   if Kt < 0.0:
+      Kt = 0.0
    if Kt > 1.0:
       Kt = 1.0
 
@@ -173,7 +175,7 @@ def save_models():
 
 # train the discriminator and decoder
 n_batches = tf.data.experimental.cardinality(dataset)
-Kt = gamma
+Kt = 0
 # manually enumerate epochs
 for i in range(epochs):
    for j, element in enumerate(dataset):

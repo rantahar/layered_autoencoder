@@ -102,14 +102,16 @@ def make_discriminator():
    model.add(layers.Conv2D(dcl*4, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))
-   #model.add(layers.Conv2D(dcl*4, (4,4), strides=(1,1), padding='same', kernel_initializer=init))
-   #model.add(layers.BatchNormalization())
-   #model.add(layers.LeakyReLU(alpha=0.2))
+   model.add(layers.Conv2D(disc_encoding_size, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
+   model.add(layers.LeakyReLU(alpha=0.2))
+
+   # IMG_SIZE/16 ** 2 * disc_encoding_size = 4**2 * 8
 
    # decoding
-   #model.add(layers.Conv2DTranspose(dcl*4, (4,4), strides=(1,1), padding='same', kernel_initializer=init))
-   #model.add(layers.BatchNormalization())
-   #model.add(layers.LeakyReLU(alpha=0.2))
+   model.add(layers.Conv2DTranspose(dcl*4, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
+   model.add(layers.BatchNormalization())
+   model.add(layers.LeakyReLU(alpha=0.2))
    model.add(layers.Conv2DTranspose(dcl*2, (4,4), strides=(2,2), padding='same', kernel_initializer=init))
    model.add(layers.BatchNormalization())
    model.add(layers.LeakyReLU(alpha=0.2))

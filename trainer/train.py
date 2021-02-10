@@ -12,7 +12,7 @@ from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-MODEL_PATH = 'began_disc_8'
+MODEL_PATH = 'began_disc_32_64'
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.001
 gamma = 0.5
@@ -20,8 +20,8 @@ lambda_Kt = learning_rate
 beta = 0.5
 BATCH_SIZE = 32
 IMG_SIZE = 64
-dcl = 8
-gcl = 8
+dcl = 32
+gcl = 64
 latent_dim = 128
 disc_encoding_size = 8
 
@@ -31,7 +31,7 @@ SAVE_PATH = MODEL_PATH # for local
 DATA_PATH = 'celeba'
 save_every = 3500
 
-remote = False
+remote = True
 
 if remote:
 	print("Downloading data")

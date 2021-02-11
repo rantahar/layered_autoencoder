@@ -11,7 +11,7 @@ else:
     MODEL_PATH = "began"
 
 
-latent_dim = 128
+latent_dim = 64
 PATH = '../data/celeba'
 IMG_SIZE = 64
 BATCH_SIZE = 5

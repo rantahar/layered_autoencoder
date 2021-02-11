@@ -1,4 +1,5 @@
 import sys
+import os
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
@@ -29,24 +30,38 @@ dataset = image_dataset_from_directory(PATH,
 dataset = dataset.take(1).map(normalize)
 images = next(iter(dataset))[0]
 
-noise = tf.random.normal([16, latent_dim])
+if os.path.isdir(MODEL_PATH+"/encoder") and os.path.isdir(MODEL_PATH+"/decoder"):
+    encode = True
+else:
+    encode = False
+
+noise = tf.random.uniform([16, latent_dim], minval=-1)
 discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
 generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
+if encode:
+    decoder = tf.keras.models.load_model(MODEL_PATH+"/decoder")
+    encoder = tf.keras.models.load_model(MODEL_PATH+"/encoder")
 
-decoded = discriminator(images)
+discriminated = discriminator(images)
 generated = generator(noise)
+if encode:
+    decoded = decoder(encoder(images))
 
 
 fig=plt.figure(figsize=(8, 8))
 
 for i in range(4):
-    fig.add_subplot(4, 3, 3*i+1)
+    fig.add_subplot(4, 4, 4*i+1)
     im = (images[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 3, 3*i+2)
-    im = (decoded[i] + 1) / 2
+    fig.add_subplot(4, 4, 4*i+2)
+    im = (discriminated[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 3, 3*i+3)
+    if encode:
+        fig.add_subplot(4, 4, 4*i+3)
+        im = (decoded[i] + 1) / 2
+        plt.imshow(im)
+    fig.add_subplot(4, 4, 4*i+4)
     im = (generated[i] + 1) / 2
     plt.imshow(im)
 

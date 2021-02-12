@@ -73,25 +73,24 @@ dataset = dataset.map(normalize)
 
 init = RandomNormal(stddev=0.02)
 
-def upscale_block(x, size, upscale = True):
+def conv_block(x, size):
    x = layers.Conv2D(size, (4,4), padding='same', kernel_initializer=init)(x)
    x = layers.BatchNormalization()(x)
    x = layers.LeakyReLU(alpha=0.2)(x)
    #x = layers.Conv2D(size, (4,4), padding='same', kernel_initializer=init)(x)
    #x = layers.BatchNormalization()(x)
    #x = layers.LeakyReLU(alpha=0.2)(x)
+   return x
+
+def upscale_block(x, size, upscale = True):
+   x = conv_block(x, size)
    if upscale:
       img_size = x.shape[1]
       x = tf.image.resize(x, (2*img_size, 2*img_size), method="nearest")
    return x
 
 def downscale_block(x, size, downscale = True):
-   x = layers.Conv2D(size, (4,4), padding='same', kernel_initializer=init)(x)
-   x = layers.BatchNormalization()(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   #x = layers.Conv2D(size, (4,4), padding='same', kernel_initializer=init)(x)
-   #x = layers.BatchNormalization()(x)
-   #x = layers.LeakyReLU(alpha=0.2)(x)
+   x = conv_block(x, size)
    if downscale:
       x = layers.Conv2D(size, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(x)
       x = layers.BatchNormalization()(x)
@@ -139,16 +138,13 @@ g2.summary()
 def make_encoder(input_size, features, dcl, n_out):
    input = tf.keras.Input(shape=(input_size,input_size,features))
    # encoding
-   x = input
    x = downscale_block(input, dcl)
    x = downscale_block(x, dcl*2)
    x = downscale_block(x, dcl*4)
-   x = downscale_block(x, dcl*8, downscale = False)
-   x = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
-   x = downscale_block(x, dcl*4)
-   x = downscale_block(x, dcl*8, downscale = False)
-   x = downscale_block(x, dcl*8, downscale = False)
-   x = downscale_block(x, dcl*8, downscale = False)
+   x = downscale_block(x, dcl*8)
+   x = conv_block(x, dcl*16)
+   x = conv_block(x, dcl*16)
+   x = conv_block(x, dcl*16)
    x = upscale_block(x, dcl)
    output = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
@@ -182,7 +178,7 @@ def make_discriminator(input_shape, dcl, latent_dim):
       x = downscale_block(x, dcl*step)
       step *= 2
       size//=2
-   x = downscale_block(x,  dcl*step, downscale = False)
+   x = conv_block(x,  dcl*step)
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim, activation='tanh')(x)
 

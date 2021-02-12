@@ -144,6 +144,12 @@ def make_encoder(input_size, features, dcl, n_out):
    x = downscale_block(x, dcl*2)
    x = downscale_block(x, dcl*4)
    x = downscale_block(x, dcl*8, downscale = False)
+   x = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   x = downscale_block(x, dcl*4)
+   x = downscale_block(x, dcl*8, downscale = False)
+   x = downscale_block(x, dcl*8, downscale = False)
+   x = downscale_block(x, dcl*8, downscale = False)
+   x = upscale_block(x, dcl)
    output = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
@@ -193,9 +199,9 @@ def make_discriminator(input_shape, dcl, latent_dim):
    return model
 
 
-disc1_mid = make_discriminator(enc1.output_shape[1:], dcl*4, latent_dim)
-disc1_mid.summary()
-d1 = combine_models((enc1, disc1_mid, dec1))
+#disc1_mid = make_discriminator(enc1.output_shape[1:], dcl*4, latent_dim)
+#disc1_mid.summary()
+d1 = combine_models((enc1, dec1))
 d2 = make_discriminator(g1.output_shape[1:], dcl*4, latent_dim)
 d2.summary()
 
@@ -220,8 +226,8 @@ def train(images, batch_size, Kt):
 
       real_sketch_quality = d2(real_sketch)
       fake_sketch_quality = d2(fake_sketch)
-      real_image_quality = dec1(disc1_mid(real_sketch))
-      fake_image_quality = dec1(disc1_mid(enc1(fake_images)))
+      real_image_quality = dec1(real_sketch)
+      fake_image_quality = dec1(enc1(fake_images))
 
       real_image_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
       fake_image_loss = tf.math.reduce_mean(tf.math.abs(fake_image_quality - fake_images))
@@ -260,7 +266,6 @@ def train(images, batch_size, Kt):
 def save_models():
    enc1.save(SAVE_PATH+"/encoder1")
    dec1.save(SAVE_PATH+"/decoder1")
-   disc1_mid.save(SAVE_PATH+"/discriminator1")
    d2.save(SAVE_PATH+"/discriminator2")
    g1.save(SAVE_PATH+"/generator1")
    g2.save(SAVE_PATH+"/generator2")

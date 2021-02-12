@@ -33,14 +33,13 @@ images = next(iter(dataset))[0]
 
 noise = tf.random.uniform([16, latent_dim], minval=-1)
 encoder1 = tf.keras.models.load_model(MODEL_PATH+"/encoder1")
-discriminator1 = tf.keras.models.load_model(MODEL_PATH+"/discriminator1")
 decoder1 = tf.keras.models.load_model(MODEL_PATH+"/decoder1")
 discriminator2 = tf.keras.models.load_model(MODEL_PATH+"/discriminator2")
 generator1 = tf.keras.models.load_model(MODEL_PATH+"/generator1")
 generator2 = tf.keras.models.load_model(MODEL_PATH+"/generator2")
 
 encoded = encoder1(images)
-discriminated1 = decoder1(discriminator1(encoded))
+discriminated1 = decoder1(encoded)
 discriminated2 = decoder1(discriminator2(encoded))
 generated1 = generator2(encoded)
 generated2 = generator2(generator1(noise))

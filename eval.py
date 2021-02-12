@@ -42,14 +42,23 @@ generated = generator1(noise)
 fig=plt.figure(figsize=(8, 8))
 
 for i in range(4):
-    fig.add_subplot(4, 3, 3*i+1)
+    fig.add_subplot(4, 6, 6*i+1)
     im = (images[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 3, 3*i+2)
+    fig.add_subplot(4, 6, 6*i+2)
     im = (discriminated[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 3, 3*i+3)
-    im = (generated[i] + 1) / 2
+    fig.add_subplot(4, 6, 6*i+3)
+    im = (generated[-4][i] + 1) / 2
+    plt.imshow(im)
+    fig.add_subplot(4, 6, 6*i+4)
+    im = (generated[-3][i] + 1) / 2
+    plt.imshow(im)
+    fig.add_subplot(4, 6, 6*i+5)
+    im = (generated[-2][i] + 1) / 2
+    plt.imshow(im)
+    fig.add_subplot(4, 6, 6*i+6)
+    im = (generated[-1][i] + 1) / 2
     plt.imshow(im)
 
 

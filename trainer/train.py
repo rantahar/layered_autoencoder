@@ -159,6 +159,7 @@ def make_decoder(input_shape, gcl, n_out):
    model = Model(inputs = input, outputs = output)
    return model
 
+sketcher = make_encoder(IMG_SIZE, 3, dcl, sketch_dim)
 enc1 = make_encoder(IMG_SIZE, 3, dcl, sketch_dim)
 dec1 = make_decoder((8, 8, sketch_dim), gcl, 3)
 enc1.summary()
@@ -216,27 +217,19 @@ def train(images, batch_size, Kt):
    noise = tf.random.uniform([batch_size, latent_dim], minval=-1)
 
    with tf.GradientTape(persistent=True) as tape:
-      fake_sketch = g1(noise)
-      fake_images = g2(fake_sketch)
-      real_sketch = enc1(images)
+      fake_images = g2(g1(noise))
+      reproduction = g2(sketcher(images))
 
-      real_sketch_quality = d2(real_sketch)
-      fake_sketch_quality = d2(fake_sketch)
-      real_image_quality = dec1(real_sketch)
-      fake_image_quality = dec1(enc1(fake_images))
+      real_image_quality = d1(images)
+      fake_image_quality = d1(fake_images)
 
-      real_image_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
-      fake_image_loss = tf.math.reduce_mean(tf.math.abs(fake_image_quality - fake_images))
-      real_sketch_loss = tf.math.reduce_mean(tf.math.abs(real_sketch_quality - real_sketch))
-      fake_sketch_loss = tf.math.reduce_mean(tf.math.abs(fake_sketch_quality - fake_sketch))
+      real_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
+      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_image_quality - fake_images))
+      reproduction_loss = tf.math.reduce_mean(tf.math.abs(reproduction - images))
 
-      real_loss = real_image_loss + 0.0*real_sketch_loss
-      fake_loss = fake_image_loss + 0.0*fake_sketch_loss
-
-      d1_loss = real_image_loss - Kt * fake_image_loss
-      g2_loss = fake_image_loss
-      d2_loss = real_sketch_loss - Kt * fake_sketch_loss
-      g1_loss = fake_image_loss
+      d1_loss = real_loss - Kt * fake_loss
+      g2_loss = fake_loss + 0.1*reproduction_loss
+      g1_loss = fake_loss
 
    g1_gradients = tape.gradient(g1_loss, g1.trainable_variables)
    g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
@@ -244,8 +237,6 @@ def train(images, batch_size, Kt):
    g2_optimizer.apply_gradients(zip(g2_gradients, g2.trainable_variables))
    d1_gradients = tape.gradient(d1_loss, d1.trainable_variables)
    d1_optimizer.apply_gradients(zip(d1_gradients, d1.trainable_variables))
-   d2_gradients = tape.gradient(d2_loss, d2.trainable_variables)
-   d2_optimizer.apply_gradients(zip(d2_gradients, d2.trainable_variables))
 
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
@@ -256,13 +247,12 @@ def train(images, batch_size, Kt):
 
    convergence = real_loss + tf.abs(gamma * real_loss - fake_loss)
 
-   return real_image_loss, real_sketch_loss, fake_image_loss, fake_sketch_loss, Kt, convergence
+   return real_loss, fake_loss, reproduction_loss, Kt, convergence
 
 
 def save_models():
-   enc1.save(SAVE_PATH+"/encoder1")
-   dec1.save(SAVE_PATH+"/decoder1")
-   d2.save(SAVE_PATH+"/discriminator2")
+   d1.save(SAVE_PATH+"/discriminator")
+   sketcher.save(SAVE_PATH+"/sketcher")
    g1.save(SAVE_PATH+"/generator1")
    g2.save(SAVE_PATH+"/generator2")
    if remote:
@@ -289,10 +279,10 @@ for i in range(epochs):
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
       this_batch_size = element[0].shape[0]
-      real_image_loss, real_sketch_loss, fake_image_loss, fake_sketch_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
+      real_loss, fake_loss, reproduction_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
       if s%log_step == log_step-1:
-         print(' %d, %d/%d, r1=%.3f, r2=%.3f, f1=%.3f, f2=%.3f, Kt=%.3f, convergence=%.3f' %
-            (s, j+1, n_batches, real_image_loss, real_sketch_loss, fake_image_loss, fake_sketch_loss, Kt, convergence))
+         print(' %d, %d/%d, r1=%.3f, g=%.3f, g2=%.3f, Kt=%.3f, convergence=%.3f' %
+            (s, j+1, n_batches, real_loss, fake_loss, reproduction_loss, Kt, convergence))
 
 
 save_models()

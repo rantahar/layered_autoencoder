@@ -32,35 +32,29 @@ images = next(iter(dataset))[0]
 
 
 noise = tf.random.uniform([16, latent_dim], minval=-1)
-encoder1 = tf.keras.models.load_model(MODEL_PATH+"/encoder1")
-decoder1 = tf.keras.models.load_model(MODEL_PATH+"/decoder1")
-discriminator2 = tf.keras.models.load_model(MODEL_PATH+"/discriminator2")
+discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
+sketcher = tf.keras.models.load_model(MODEL_PATH+"/sketcher")
 generator1 = tf.keras.models.load_model(MODEL_PATH+"/generator1")
 generator2 = tf.keras.models.load_model(MODEL_PATH+"/generator2")
 
-encoded = encoder1(images)
-discriminated1 = decoder1(encoded)
-discriminated2 = decoder1(discriminator2(encoded))
-generated1 = generator2(encoded)
+discriminated1 = discriminator(images)
+generated1 = generator2(sketcher(images))
 generated2 = generator2(generator1(noise))
 
 
 fig=plt.figure(figsize=(8, 8))
 
 for i in range(4):
-    fig.add_subplot(4, 5, 5*i+1)
+    fig.add_subplot(4, 4, 4*i+1)
     im = (images[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 5, 5*i+2)
+    fig.add_subplot(4, 4, 4*i+2)
     im = (discriminated1[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 5, 5*i+3)
-    im = (discriminated2[i] + 1) / 2
-    plt.imshow(im)
-    fig.add_subplot(4, 5, 5*i+4)
+    fig.add_subplot(4, 4, 4*i+3)
     im = (generated1[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 5, 5*i+5)
+    fig.add_subplot(4, 4, 4*i+4)
     im = (generated2[i] + 1) / 2
     plt.imshow(im)
 

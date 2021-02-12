@@ -158,11 +158,12 @@ def make_discriminator(input_shape, dcl, latent_dim):
    x = downscale_block(x, dcl*8)
    x = conv_block(x, dcl*16)
    x = conv_block(x, dcl*16)
-   x = conv_block(x, dcl*16)
-   x = upscale_block(x, dcl)
-   x = upscale_block(x, dcl)
-   x = upscale_block(x, dcl)
-   x = upscale_block(x, dcl)
+   rpg = to_rpg(x)
+   size = 4
+   while size < IMG_SIZE:
+      x = upscale_block(x, dcl)
+      rpg = upscale(rpg) + to_rpg(x)
+      size*=2
    output = layers.Conv2DTranspose(features, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model

@@ -125,6 +125,26 @@ def make_generator(n_in, gcl, n_out):
 g1 = make_generator(latent_dim, gcl, 3)
 g1.summary()
 
+def make_encoder(input_shape, gcl, latent_dim):
+   features = input_shape[-1]
+   input_size = input_shape[1]
+   input = tf.keras.Input(shape=input_shape)
+   # encoding
+   x = input
+   size = 64
+   s = 1
+   while size > 4:
+      x = downscale_block(x, gcl*s)
+      s*=2
+      size /= 2
+   x = layers.Flatten()(x)
+   x = layers.Dense(latent_dim*2)(x)
+   output = layers.Dense(latent_dim)(x)
+   model = Model(inputs = input, outputs = output)
+   return model
+
+e1 = make_encoder(g1.output_shape[1:], gcl, latent_dim)
+e1.summary()
 
 def make_discriminator(input_shape, dcl, latent_dim):
    features = input_shape[-1]
@@ -155,6 +175,7 @@ d1.summary()
 tf_lr = tf.Variable(learning_rate)
 d1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 g1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+e1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 
 
 
@@ -171,13 +192,22 @@ def train(images, batch_size, Kt):
       real_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
       fake_loss = tf.math.reduce_mean(tf.math.abs(fake_image_quality - fake_images))
 
+      #r1 = g1(e1(images))
+      r2 = e1(fake_images)
+
+      #id_loss = tf.math.reduce_mean(tf.math.abs(r1 - images))
+      id_loss = tf.math.reduce_mean(tf.math.abs(r2 - noise))
+
       d1_loss = real_loss - Kt * fake_loss
-      g1_loss = fake_loss
+      g1_loss = fake_loss + id_weight * id_loss
+      e1_loss = id_weight * id_loss
 
    g1_gradients = tape.gradient(g1_loss, g1.trainable_variables)
    g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
    d1_gradients = tape.gradient(d1_loss, d1.trainable_variables)
    d1_optimizer.apply_gradients(zip(d1_gradients, d1.trainable_variables))
+   e1_gradients = tape.gradient(e1_loss, e1.trainable_variables)
+   e1_optimizer.apply_gradients(zip(e1_gradients, e1.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
    if Kt < 0.0:
@@ -187,7 +217,7 @@ def train(images, batch_size, Kt):
 
    convergence = real_loss + tf.abs(gamma * real_loss - fake_loss)
 
-   return real_loss, fake_loss, Kt, convergence
+   return real_loss, fake_loss, id_loss, Kt, convergence
 
 
 def save_models():
@@ -218,10 +248,10 @@ while s < samples:
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
       this_batch_size = element[0].shape[0]
-      real_loss, fake_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
+      real_loss, fake_loss, id_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
       if s%log_step == log_step-1:
-         print(' %d, %d/%d, r1=%.3f, g=%.3f, Kt=%.3f, convergence=%.3f' %
-            (s, j, n_batches, real_loss, fake_loss, Kt, convergence))
+         print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
+            (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence))
 
       if s > samples:
          break

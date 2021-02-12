@@ -23,8 +23,9 @@ reproduction_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 16
-gcl = 16
+dcl = 8
+gcl = 8
+sketch_dim = 8
 latent_dim = 64
 
 # Specific training parameters
@@ -98,106 +99,112 @@ def downscale_block(x, size, downscale = True):
    return x
 
 
-n_steps = 0
-size = 4
-while size < IMG_SIZE:
-   size*=2
-   n_steps += 1
-
-def make_encoder_step(input_shape, n_in, dcl):
-   input = tf.keras.Input(shape=(*input_shape, n_in))
-   x = downscale_block(input, dcl)
-   x = downscale_block(x, dcl)
-   output = downscale_block(x, dcl)
-   model = Model(inputs = input, outputs = output)
-   return model
-
-def make_full_encoder(encoder, dcl, n_out):
-   input_shape = encoder.input_shape
-   input = tf.keras.Input(shape=input_shape[1:])
-   e1 = encoder(input)
-   x = downscale_block(e1, dcl)
-   x = layers.Flatten()(x)
-   x = layers.Dense(2*n_out)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   e2 = layers.Dense(n_out, activation='tanh')(x)
-   model = Model(inputs = input, outputs = [e1,e2])
-   return model
-
-
-def make_generator_step(input_shape, gcl, n_out, image=False):
-   input = tf.keras.Input(shape=(*input_shape, gcl))
+def make_generator_step(input_shape, gcl, n_out):
+   input = tf.keras.Input(shape=input_shape)
    x = upscale_block(input, gcl)
    x = upscale_block(x, gcl)
-   output = upscale_block(x, gcl)
-   if image:
-      output = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(output)
+   x = upscale_block(x, gcl)
+   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
 
-def make_full_generator(n_in, gcl, generator_head):
+def make_first_generator(n_in, gcl, n_out):
    input = tf.keras.Input(shape=(n_in))
    n_nodes = gcl * 4 * 4
    x = layers.Dense(n_nodes)(input)
    x = layers.Reshape((4, 4, gcl))(x)
    x = upscale_block(x, gcl)
-   output = generator_head(x)
+   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
 
+def combine_models(generators):
+   input_shape = generators[0].input_shape[1:]
+   input = tf.keras.Input(shape=input_shape)
+   x = input
+   for g in generators:
+      x = g(x)
+   output = x
+   model = Model(inputs = input, outputs = output)
+   return model
 
-e1 = make_encoder_step((64, 64), 3, gcl)
-g1 = make_generator_step((8, 8), gcl, 3, image=True)
+g1 = make_first_generator(latent_dim, gcl, sketch_dim)
+g2 = make_generator_step((8, 8, sketch_dim), gcl, 3)
+full_generator = combine_models((g1,g2))
 
-e2 = make_full_encoder(e1, gcl, latent_dim)
-g2 = make_full_generator(latent_dim, gcl, g1)
-
-encoders = [e1, e2]
-generators = [g1, g2]
-full_encoder = e2
-full_generator = g2
-
-for e in encoders:
-   e.summary()
-
-for g in generators:
-   g.summary()
-
+g1.summary()
+g2.summary()
 
 
-def make_discriminator():
-   input = tf.keras.Input(shape=(IMG_SIZE,IMG_SIZE,3))
+def make_encoder(input_size, features, dcl, n_out):
+   input = tf.keras.Input(shape=(input_size,input_size,features))
    # encoding
    x = input
-   s = 1
-   for i in range(4):
-      x = downscale_block(x, dcl*s)
-      s*=2
-   x = downscale_block(x,  dcl*s, downscale = False)
+   x = downscale_block(input, dcl)
+   x = downscale_block(x, dcl*2)
+   x = downscale_block(x, dcl*4)
+   x = downscale_block(x, dcl*8, downscale = False)
+   output = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   model = Model(inputs = input, outputs = output)
+   return model
+
+def make_decoder(input_shape, gcl, n_out):
+   input = tf.keras.Input(shape=input_shape)
+   x = upscale_block(input, gcl)
+   x = upscale_block(x, gcl)
+   x = upscale_block(x, gcl)
+   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   model = Model(inputs = input, outputs = output)
+   return model
+
+enc1 = make_encoder(IMG_SIZE, 3, dcl, sketch_dim)
+dec1 = make_decoder((8, 8, sketch_dim), gcl, 3)
+enc1.summary()
+dec1.summary()
+
+
+
+def make_discriminator(input_shape, dcl, latent_dim):
+   features = input_shape[-1]
+   input_size = input_shape[1]
+   input = tf.keras.Input(shape=input_shape)
+   # encoding
+   x = input
+   step = 1
+   size = input_size
+   while size > 4:
+      x = downscale_block(x, dcl*step)
+      step *= 2
+      size//=2
+   x = downscale_block(x,  dcl*step, downscale = False)
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim, activation='tanh')(x)
 
    # decoding
-   n_nodes = gcl * 4 * 4
-   x = layers.Flatten()(x)
+   n_nodes = dcl * 4 * 4
    x = layers.Dense(n_nodes)(x)
    x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Reshape((4, 4, gcl))(x)
-   for i in range(4):
-      x = upscale_block(x, gcl)
-   x = upscale_block(x, gcl, upscale = False)
-   output = layers.Conv2DTranspose(3, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   x = layers.Reshape((4, 4, dcl))(x)
+   while size < input_size:
+      x = upscale_block(x, dcl)
+      size *= 2
+   output = layers.Conv2DTranspose(features, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
 
-discriminator = make_discriminator()
-discriminator.summary()
+
+disc1_mid = make_discriminator(enc1.output_shape[1:], dcl*4, latent_dim)
+disc1_mid.summary()
+d1 = combine_models((enc1, disc1_mid, dec1))
+d2 = make_discriminator(g1.output_shape[1:], dcl*4, latent_dim)
+d2.summary()
 
 
 tf_lr = tf.Variable(learning_rate)
-discriminator_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-generator_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-encoder_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+d1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+d2_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+g1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+g2_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 
 
 
@@ -207,29 +214,37 @@ def train(images, batch_size, Kt):
    noise = tf.random.uniform([batch_size, latent_dim], minval=-1)
 
    with tf.GradientTape(persistent=True) as tape:
-      fake_images = full_generator(noise)
-      real_quality = discriminator(images)
-      fake_quality = discriminator(fake_images)
+      fake_sketch = g1(noise)
+      fake_images = g2(fake_sketch)
+      real_sketch = enc1(images)
 
-      encodings = full_encoder(images)
-      reproduction_loss = 0
-      for e, g in zip(encodings, generators):
-         reproduction = g(e)
-         reproduction_loss += tf.math.reduce_mean(tf.math.square(reproduction - images))
+      real_sketch_quality = d2(real_sketch)
+      fake_sketch_quality = d2(fake_sketch)
+      real_image_quality = dec1(disc1_mid(real_sketch))
+      fake_image_quality = dec1(disc1_mid(enc1(fake_images)))
 
-      real_loss = tf.math.reduce_mean(tf.math.square(real_quality - images))
-      fake_loss = tf.math.reduce_mean(tf.math.square(fake_quality - fake_images))
+      real_image_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
+      fake_image_loss = tf.math.reduce_mean(tf.math.abs(fake_image_quality - fake_images))
+      real_sketch_loss = tf.math.reduce_mean(tf.math.abs(real_sketch_quality - real_sketch))
+      fake_sketch_loss = tf.math.reduce_mean(tf.math.abs(fake_sketch_quality - fake_sketch))
 
-      d_loss = real_loss - Kt * fake_loss
-      e_loss = reproduction_weight * reproduction_loss
-      g_loss = fake_loss + e_loss
+      real_loss = real_image_loss + 0.0*real_sketch_loss
+      fake_loss = fake_image_loss + 0.0*fake_sketch_loss
 
-   generator_gradients = tape.gradient(g_loss, full_generator.trainable_variables)
-   generator_optimizer.apply_gradients(zip(generator_gradients, full_generator.trainable_variables))
-   encoder_gradients = tape.gradient(e_loss, full_encoder.trainable_variables)
-   encoder_optimizer.apply_gradients(zip(encoder_gradients, full_encoder.trainable_variables))
-   discriminator_gradients = tape.gradient(d_loss, discriminator.trainable_variables)
-   discriminator_optimizer.apply_gradients(zip(discriminator_gradients, discriminator.trainable_variables))
+      d1_loss = real_image_loss - Kt * fake_image_loss
+      g2_loss = fake_image_loss
+      d2_loss = real_sketch_loss - Kt * fake_sketch_loss
+      g1_loss = fake_image_loss
+
+   g1_gradients = tape.gradient(g1_loss, g1.trainable_variables)
+   g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
+   g2_gradients = tape.gradient(g2_loss, g2.trainable_variables)
+   g2_optimizer.apply_gradients(zip(g2_gradients, g2.trainable_variables))
+   d1_gradients = tape.gradient(d1_loss, d1.trainable_variables)
+   d1_optimizer.apply_gradients(zip(d1_gradients, d1.trainable_variables))
+   d2_gradients = tape.gradient(d2_loss, d2.trainable_variables)
+   d2_optimizer.apply_gradients(zip(d2_gradients, d2.trainable_variables))
+
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
    if Kt < 0.0:
@@ -239,14 +254,16 @@ def train(images, batch_size, Kt):
 
    convergence = real_loss + tf.abs(gamma * real_loss - fake_loss)
 
-   return fake_loss, reproduction_loss, real_loss, Kt, convergence
+   return real_image_loss, real_sketch_loss, fake_image_loss, fake_sketch_loss, Kt, convergence
 
 
 def save_models():
-   discriminator.save(SAVE_PATH+"/discriminator")
-   full_generator.save(SAVE_PATH+"/generator")
-   encoders[0].save(SAVE_PATH+"/encoder")
-   generators[0].save(SAVE_PATH+"/decoder")
+   enc1.save(SAVE_PATH+"/encoder1")
+   dec1.save(SAVE_PATH+"/decoder1")
+   disc1_mid.save(SAVE_PATH+"/discriminator1")
+   d2.save(SAVE_PATH+"/discriminator2")
+   g1.save(SAVE_PATH+"/generator1")
+   g2.save(SAVE_PATH+"/generator2")
    if remote:
       print("Uploading model")
       subprocess.call([
@@ -259,7 +276,6 @@ def save_models():
 n_batches = tf.data.experimental.cardinality(dataset)
 Kt = 0
 s=0
-avrp, avre, avf, avc = 1, 1, 1, 1
 # manually enumerate epochs
 for i in range(epochs):
    for j, element in enumerate(dataset):
@@ -272,14 +288,10 @@ for i in range(epochs):
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
       this_batch_size = element[0].shape[0]
-      fake_loss, repr_loss, real_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
+      real_image_loss, real_sketch_loss, fake_image_loss, fake_sketch_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
       if s%log_step == log_step-1:
-         avrp = 0.95*avrp + 0.05*repr_loss
-         avre = 0.95*avre + 0.05*real_loss
-         avf = 0.95*avf + 0.05*fake_loss
-         avc = 0.95*avc + 0.05*convergence
-         print(' %d, %d/%d, f=%.3f, repr=%.3f, r=%.3f, Kt=%.3f, convergence=%.3f' %
-            (s, j+1, n_batches, avf, avrp, avre, Kt, avc))
+         print(' %d, %d/%d, r1=%.3f, r2=%.3f, f1=%.3f, f2=%.3f, Kt=%.3f, convergence=%.3f' %
+            (s, j+1, n_batches, real_image_loss, real_sketch_loss, fake_image_loss, fake_sketch_loss, Kt, convergence))
 
 
 save_models()

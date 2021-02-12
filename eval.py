@@ -30,39 +30,39 @@ dataset = image_dataset_from_directory(PATH,
 dataset = dataset.take(1).map(normalize)
 images = next(iter(dataset))[0]
 
-if os.path.isdir(MODEL_PATH+"/encoder") and os.path.isdir(MODEL_PATH+"/decoder"):
-    encode = True
-else:
-    encode = False
 
 noise = tf.random.uniform([16, latent_dim], minval=-1)
-discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
-generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
-if encode:
-    decoder = tf.keras.models.load_model(MODEL_PATH+"/decoder")
-    encoder = tf.keras.models.load_model(MODEL_PATH+"/encoder")
+encoder1 = tf.keras.models.load_model(MODEL_PATH+"/encoder1")
+discriminator1 = tf.keras.models.load_model(MODEL_PATH+"/discriminator1")
+decoder1 = tf.keras.models.load_model(MODEL_PATH+"/decoder1")
+discriminator2 = tf.keras.models.load_model(MODEL_PATH+"/discriminator2")
+generator1 = tf.keras.models.load_model(MODEL_PATH+"/generator1")
+generator2 = tf.keras.models.load_model(MODEL_PATH+"/generator2")
 
-discriminated = discriminator(images)
-generated = generator(noise)
-if encode:
-    decoded = decoder(encoder(images))
+encoded = encoder1(images)
+discriminated1 = decoder1(discriminator1(encoded))
+discriminated2 = decoder1(discriminator2(encoded))
+generated1 = generator2(encoded)
+generated2 = generator2(generator1(noise))
 
 
 fig=plt.figure(figsize=(8, 8))
 
 for i in range(4):
-    fig.add_subplot(4, 4, 4*i+1)
+    fig.add_subplot(4, 5, 5*i+1)
     im = (images[i] + 1) / 2
     plt.imshow(im)
-    fig.add_subplot(4, 4, 4*i+2)
-    im = (discriminated[i] + 1) / 2
+    fig.add_subplot(4, 5, 5*i+2)
+    im = (discriminated1[i] + 1) / 2
     plt.imshow(im)
-    if encode:
-        fig.add_subplot(4, 4, 4*i+3)
-        im = (decoded[i] + 1) / 2
-        plt.imshow(im)
-    fig.add_subplot(4, 4, 4*i+4)
-    im = (generated[i] + 1) / 2
+    fig.add_subplot(4, 5, 5*i+3)
+    im = (discriminated2[i] + 1) / 2
+    plt.imshow(im)
+    fig.add_subplot(4, 5, 5*i+4)
+    im = (generated1[i] + 1) / 2
+    plt.imshow(im)
+    fig.add_subplot(4, 5, 5*i+5)
+    im = (generated2[i] + 1) / 2
     plt.imshow(im)
 
 

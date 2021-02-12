@@ -12,20 +12,21 @@ from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-MODEL_PATH = 'edbegan_4_4'
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.0008
 min_learning_rate = 0.00002
 lr_update_step = 10000
 gamma = 0.5
 lambda_Kt = 0.001
-reproduction_weight = 0.1
+id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 4
-gcl = 4
+dcl = 32
+gcl = 32
 latent_dim = 64
+
+MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}'
 
 # Specific training parameters
 samples = 50000

@@ -7,9 +7,9 @@ from tensorflow.keras.preprocessing import image_dataset_from_directory
 
 
 if len(sys.argv) > 1:
-    MODEL_PATH = sys.argv[1]
+   MODEL_PATH = sys.argv[1]
 else:
-    MODEL_PATH = "began"
+   MODEL_PATH = "began"
 
 
 latent_dim = 64

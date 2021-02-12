@@ -18,18 +18,18 @@ min_learning_rate = 0.00002
 lr_update_step = 10000
 gamma = 0.5
 lambda_Kt = 0.001
-id_weight = 0.1
+id_weight = 1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 32
-gcl = 32
+dcl = 8
+gcl = 8
 latent_dim = 64
 
 MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}'
 
 # Specific training parameters
-samples = 50000
+samples = 2000
 SAVE_PATH = MODEL_PATH # for local
 DATA_PATH = 'celeba'
 save_every = 5000
@@ -112,8 +112,9 @@ def make_generator(n_in, gcl, n_out):
    n_nodes = gcl * 4 * 4
    x = layers.Dense(n_nodes)(input)
    x = layers.Reshape((4, 4, gcl))(x)
+   x = upscale_block(x, gcl)
    rpg = to_rpg(x)
-   size = 4
+   size = 8
    while size < IMG_SIZE:
       x = upscale_block(x, gcl)
       rpg = upscale(rpg) + to_rpg(x)
@@ -129,7 +130,6 @@ def make_encoder(input_shape, gcl, latent_dim):
    features = input_shape[-1]
    input_size = input_shape[1]
    input = tf.keras.Input(shape=input_shape)
-   # encoding
    x = input
    size = 64
    s = 1
@@ -152,14 +152,17 @@ def make_discriminator(input_shape, dcl, latent_dim):
    input = tf.keras.Input(shape=input_shape)
    # encoding
    x = input
-   x = downscale_block(input, dcl)
-   x = downscale_block(x, dcl*2)
-   x = downscale_block(x, dcl*4)
-   x = downscale_block(x, dcl*8)
+   size = 64
+   s = 1
+   while size > 4:
+      x = downscale_block(x, gcl*s)
+      s*=2
+      size /= 2
    x = conv_block(x, dcl*16)
    x = conv_block(x, dcl*16)
+   x = upscale_block(x, dcl)
    rpg = to_rpg(x)
-   size = 4
+   size = 8
    while size < IMG_SIZE:
       x = upscale_block(x, dcl)
       rpg = upscale(rpg) + to_rpg(x)
@@ -211,8 +214,8 @@ def train(images, batch_size, Kt):
    e1_optimizer.apply_gradients(zip(e1_gradients, e1.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
-   if Kt < 0.0:
-      Kt = 0.0
+   if Kt < 0.001:
+      Kt = 0.001
    if Kt > 1.0:
       Kt = 1.0
 

@@ -135,35 +135,20 @@ g1.summary()
 g2.summary()
 
 
-def make_encoder(input_size, features, dcl, n_out):
+def make_encoder(input_size, features, gcl, n_out):
    input = tf.keras.Input(shape=(input_size,input_size,features))
    # encoding
-   x = downscale_block(input, dcl)
-   x = downscale_block(x, dcl*2)
-   x = downscale_block(x, dcl*4)
-   x = downscale_block(x, dcl*8)
-   x = conv_block(x, dcl*16)
-   x = conv_block(x, dcl*16)
-   x = conv_block(x, dcl*16)
-   x = upscale_block(x, dcl)
+   x = downscale_block(input, gcl)
+   x = downscale_block(x, gcl*2)
+   x = downscale_block(x, gcl*4)
+   x = conv_block(x, gcl*8)
    output = layers.Conv2DTranspose(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
 
-def make_decoder(input_shape, gcl, n_out):
-   input = tf.keras.Input(shape=input_shape)
-   x = upscale_block(input, gcl)
-   x = upscale_block(x, gcl)
-   x = upscale_block(x, gcl)
-   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
-   model = Model(inputs = input, outputs = output)
-   return model
 
-sketcher = make_encoder(IMG_SIZE, 3, dcl, sketch_dim)
-enc1 = make_encoder(IMG_SIZE, 3, dcl, sketch_dim)
-dec1 = make_decoder((8, 8, sketch_dim), gcl, 3)
-enc1.summary()
-dec1.summary()
+sketcher = make_encoder(IMG_SIZE, 3, gcl, sketch_dim)
+sketcher.summary()
 
 
 
@@ -173,41 +158,31 @@ def make_discriminator(input_shape, dcl, latent_dim):
    input = tf.keras.Input(shape=input_shape)
    # encoding
    x = input
-   step = 1
-   size = input_size
-   while size > 4:
-      x = downscale_block(x, dcl*step)
-      step *= 2
-      size//=2
-   x = conv_block(x,  dcl*step)
-   x = layers.Flatten()(x)
-   x = layers.Dense(latent_dim, activation='tanh')(x)
-
-   # decoding
-   n_nodes = dcl * 4 * 4
-   x = layers.Dense(n_nodes)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Reshape((4, 4, dcl))(x)
-   while size < input_size:
-      x = upscale_block(x, dcl)
-      size *= 2
+   x = downscale_block(input, dcl)
+   x = downscale_block(x, dcl*2)
+   x = downscale_block(x, dcl*4)
+   x = downscale_block(x, dcl*8)
+   x = conv_block(x, dcl*16)
+   x = conv_block(x, dcl*16)
+   x = conv_block(x, dcl*16)
+   x = upscale_block(x, dcl)
+   x = upscale_block(x, dcl)
+   x = upscale_block(x, dcl)
+   x = upscale_block(x, dcl)
    output = layers.Conv2DTranspose(features, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
 
 
-#disc1_mid = make_discriminator(enc1.output_shape[1:], dcl*4, latent_dim)
-#disc1_mid.summary()
-d1 = combine_models((enc1, dec1))
-d2 = make_discriminator(g1.output_shape[1:], dcl*4, latent_dim)
-d2.summary()
+d1 = make_discriminator(g2.output_shape[1:], dcl, latent_dim)
+d1.summary()
 
 
 tf_lr = tf.Variable(learning_rate)
 d1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-d2_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 g1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 g2_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+sketcher_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 
 
 
@@ -217,7 +192,7 @@ def train(images, batch_size, Kt):
    noise = tf.random.uniform([batch_size, latent_dim], minval=-1)
 
    with tf.GradientTape(persistent=True) as tape:
-      fake_images = g2(g1(noise))
+      fake_images = full_generator(noise)
       reproduction = g2(sketcher(images))
 
       real_image_quality = d1(images)
@@ -230,11 +205,14 @@ def train(images, batch_size, Kt):
       d1_loss = real_loss - Kt * fake_loss
       g2_loss = fake_loss + 0.1*reproduction_loss
       g1_loss = fake_loss
+      sketcher_loss = reproduction_loss
 
    g1_gradients = tape.gradient(g1_loss, g1.trainable_variables)
    g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
    g2_gradients = tape.gradient(g2_loss, g2.trainable_variables)
    g2_optimizer.apply_gradients(zip(g2_gradients, g2.trainable_variables))
+   sketcher_gradients = tape.gradient(sketcher_loss, sketcher.trainable_variables)
+   sketcher_optimizer.apply_gradients(zip(sketcher_gradients, sketcher.trainable_variables))
    d1_gradients = tape.gradient(d1_loss, d1.trainable_variables)
    d1_optimizer.apply_gradients(zip(d1_gradients, d1.trainable_variables))
 

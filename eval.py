@@ -33,7 +33,7 @@ images = next(iter(dataset))[0]
 
 noise = tf.random.uniform([16, latent_dim], minval=-1)
 discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
-generator1 = tf.keras.models.load_model(MODEL_PATH+"/generator1")
+generator1 = tf.keras.models.load_model(MODEL_PATH+"/generator")
 
 discriminated = discriminator(images)
 generated = generator1(noise)

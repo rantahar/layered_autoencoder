@@ -217,7 +217,7 @@ def train_generator():
 
 def save_models():
    d1.save(SAVE_PATH+"/discriminator")
-   g1.save(SAVE_PATH+"/generator1")
+   g1.save(SAVE_PATH+"/generator")
    if remote:
       print("Uploading model")
       subprocess.call([

@@ -21,14 +21,14 @@ id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 16
-gcl = 16
+dcl = 8
+gcl = 8
 latent_dim = 64
 
 MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}'
 
 # Specific training parameters
-samples = 50000
+samples = 4000
 SAVE_PATH = MODEL_PATH
 DATA_PATH = 'celeba'
 save_every = 5000
@@ -51,7 +51,7 @@ if remote:
 	print(subprocess.list2cmdline(cmd))
 	subprocess.call(cmd)
 else:
-   save_every = 100
+   save_every = 1000
    log_step = 1
    DATA_PATH = '../data/' + DATA_PATH
 
@@ -106,27 +106,27 @@ def to_rpg(x, n_colors = 3):
    return x
 
 
+
 def make_generator(n_in, gcl, n_out):
    input = tf.keras.Input(shape=(n_in))
    n_nodes = gcl * 4 * 4
    x = layers.Dense(n_nodes)(input)
    x = layers.Reshape((4, 4, gcl))(x)
    x = upscale_block(x, gcl)
-   images = [to_rpg(x)]
+   image = to_rpg(x)
    size = 8
    while size < IMG_SIZE:
       x = upscale_block(x, gcl)
-      images = [upscale(i) for i in images]
-      images.append(to_rpg(x))
+      image = upscale(image) + to_rpg(x)
       size *= 2
-   model = Model(inputs = input, outputs = images)
+   model = Model(inputs = input, outputs = image)
    return model
 
 
 g1 = make_generator(latent_dim, gcl, 3)
 g1.summary()
 
-def make_encoder(input_shape, gcl, latent_dim):
+def make_encoder(input_shape, dcl, latent_dim):
    features = input_shape[-1]
    input_size = input_shape[1]
    input = tf.keras.Input(shape=input_shape)
@@ -134,87 +134,62 @@ def make_encoder(input_shape, gcl, latent_dim):
    size = 64
    s = 1
    while size > 4:
-      x = downscale_block(x, gcl*s)
+      x = downscale_block(x, dcl*s)
       s*=2
       size /= 2
+   x = downscale_block(x, dcl*s)
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim*2)(x)
    output = layers.Dense(latent_dim)(x)
    model = Model(inputs = input, outputs = output)
-   print(g1.output_shape)
    return model
-e1 = make_encoder(g1.output_shape[-1][1:], gcl, latent_dim)
-e1.summary()
 
-def make_discriminator(input_shape, dcl, latent_dim):
-   features = input_shape[-1]
-   input_size = input_shape[1]
+enc1 = make_encoder((IMG_SIZE, IMG_SIZE, 3), dcl, latent_dim)
+enc1.summary()
+
+dec1 = make_generator(latent_dim, gcl, 3)
+dec1.summary()
+
+def combine_models((steps)):
+   input_shape = steps[0].input_shape[1:]
    input = tf.keras.Input(shape=input_shape)
-   # encoding
    x = input
-   size = 64
-   s = 1
-   while size > 4:
-      x = downscale_block(x, gcl*s)
-      s*=2
-      size /= 2
-   x = conv_block(x, dcl*s)
-   x = conv_block(x, dcl*s)
-   x = conv_block(x, dcl*s)
-   x = conv_block(x, dcl*s)
-   x = upscale_block(x, dcl)
-   size = 8
-   while size < IMG_SIZE:
-      x = upscale_block(x, dcl)
-      size*=2
-   rpg = to_rpg(x)
-   output = layers.Conv2DTranspose(features, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   for s in steps:
+      x =s(x)
+   output = x
    model = Model(inputs = input, outputs = output)
    return model
 
-
-d1 = make_discriminator(g1.output_shape[-1][1:], dcl, latent_dim)
+d1 = combine_models((enc1, dec1))
 d1.summary()
 
 
 tf_lr = tf.Variable(learning_rate)
 d1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 g1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-e1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+ae_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+
 
 
 
 @tf.function
-def train(images, batch_size, Kt):
-   noise = tf.random.uniform([batch_size, latent_dim], minval=-1)
+def train_discriminator(images, batch_size, Kt):
+   z = tf.random.uniform([batch_size, latent_dim], minval=-1)
 
    with tf.GradientTape(persistent=True) as tape:
-      fake_images = g1(noise)
-
       real_image_quality = d1(images)
-      fake_qualities  = [d1(i) for i in fake_images]
-
       real_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
-      fake_loss = 0
-      for i, q in zip(fake_images, fake_qualities):
-         fake_loss = 0.5*fake_loss + 0.5*tf.math.reduce_mean(tf.math.abs(i - q))
 
-      # Reproduce original noise to reduce mode collapse
-      noise_repr = e1(fake_images[-1])
-      image_repr = g1(e1(images))[-1]
-      id_loss  = tf.math.reduce_mean(tf.math.abs(noise_repr - noise))
-      id_loss += tf.math.reduce_mean(tf.math.abs(image_repr - images))
+      fake_images = g1(z)
+      fake_qualities = d1(fake_images)
+      encoding = enc1(fake_images)
 
-      d1_loss = real_loss - Kt * fake_loss
-      g1_loss = fake_loss + id_weight * id_loss
-      e1_loss = id_weight * id_loss
+      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_images - fake_qualities))
+      id_loss = tf.math.reduce_mean(tf.math.abs(encoding - z))
+      d1_loss = real_loss - Kt * fake_loss + id_weight * id_loss
 
-   g1_gradients = tape.gradient(g1_loss, g1.trainable_variables)
-   g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
    d1_gradients = tape.gradient(d1_loss, d1.trainable_variables)
    d1_optimizer.apply_gradients(zip(d1_gradients, d1.trainable_variables))
-   e1_gradients = tape.gradient(e1_loss, e1.trainable_variables)
-   e1_optimizer.apply_gradients(zip(e1_gradients, e1.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
    if Kt < 0.001:
@@ -225,6 +200,19 @@ def train(images, batch_size, Kt):
    convergence = real_loss + tf.abs(gamma * real_loss - fake_loss)
 
    return real_loss, fake_loss, id_loss, Kt, convergence
+
+
+@tf.function
+def train_generator():
+   z = tf.random.uniform([BATCH_SIZE, latent_dim], minval=-1)
+
+   with tf.GradientTape(persistent=True) as tape:
+      fake_images = g1(z)
+      fake_qualities = d1(fake_images)
+      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_images - fake_qualities))
+
+   g1_gradients = tape.gradient(fake_loss, g1.trainable_variables)
+   g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
 
 
 def save_models():
@@ -255,7 +243,8 @@ while s < samples:
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
       this_batch_size = element[0].shape[0]
-      real_loss, fake_loss, id_loss, Kt, convergence = train(element[0], this_batch_size, Kt)
+      real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element[0], this_batch_size, Kt)
+      train_generator()
       if s%log_step == log_step-1:
          print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
             (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence))

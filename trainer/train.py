@@ -22,11 +22,12 @@ id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 8
-gcl = 8
-latent_dim = 32
+dcl = 16
+gcl = 16
+latent_dim = 64
 middle_latent_dim = 8
 
+AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_32_{middle_latent_dim}'
 MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}_{middle_latent_dim}'
 
 # Specific training parameters
@@ -80,23 +81,12 @@ epochs = samples//n_batches + 1
 from trainer import models
 
 
-# encoder: image to latend dim
-big_enc = models.make_big_encoder(dcl, IMG_SIZE, middle_latent_dim)
-big_enc.summary()
-#small_enc = make_small_encoder(big_enc.output_shape[1:], dcl, latent_dim)
-#small_enc.summary()
-
-# decoder: latent dim to image
-#small_dec = make_small_generator(latent_dim, gcl)
-#small_dec.summary()
-big_dec = models.make_big_generator(big_enc.output_shape[1:], gcl, IMG_SIZE, 3)
-big_dec.summary()
-
-# full autoencoder
-autoencoder = models.combine_models((big_enc, big_dec))
+# load incoder and decoder
+encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
+decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
 
 # dicriminator: combine small encoder and decoder
-d1 = models.make_small_encoder(big_enc.output_shape[1:], dcl, latent_dim)
+d1 = models.make_small_encoder(encoder.output_shape[1:], dcl, latent_dim)
 d1.summary()
 d2 = models.make_small_generator(latent_dim, gcl, middle_latent_dim)
 d2.summary()
@@ -104,39 +94,26 @@ d2.summary()
 small_discriminator = models.combine_models((d1, d2))
 
 # full dicscriminator
-discriminator = models.combine_models((big_enc, small_discriminator, big_dec))
+discriminator = models.combine_models((encoder, small_discriminator, decoder))
 
 # generator: just a small decoder
 small_generator = models.make_small_generator(latent_dim, gcl, middle_latent_dim)
 small_generator.summary()
 
 # full generator
-generator = models.combine_models((small_generator, big_dec))
+generator = models.combine_models((small_generator, decoder))
 
 
 tf_lr = tf.Variable(learning_rate)
 disc_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 gen_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-ae_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-
-
-
-@tf.function
-def train_autoencoder(images):
-   with tf.GradientTape(persistent=True) as tape:
-      reproduction = autoencoder(images)
-      loss = tf.math.reduce_mean(tf.math.abs(reproduction - images))
-
-   gradients = tape.gradient(loss, autoencoder.trainable_variables)
-   ae_optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
-   return loss
 
 
 
 @tf.function
 def train_discriminator(images, batch_size, Kt):
    z = tf.random.uniform([batch_size, latent_dim], minval=-1)
-   image_encodings = big_enc(images)
+   image_encodings = encoder(images)
 
    with tf.GradientTape(persistent=True) as tape:
       real_quality = small_discriminator(image_encodings)
@@ -180,7 +157,6 @@ def train_generator():
 def save_models():
    discriminator.save(SAVE_PATH+"/discriminator")
    generator.save(SAVE_PATH+"/generator")
-   autoencoder.save(SAVE_PATH+"/autoencoder")
    if remote:
       print("Uploading model")
       subprocess.call([
@@ -207,19 +183,12 @@ for i in range(epochs):
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
 
-      ae_loss = train_autoencoder(element[0])
-
-      if s < pure_autoencoder_updates:
-         if s%log_step == log_step-1:
-            print(' %d, %d/%d, ae=%.3f' % (s, j, n_batches, ae_loss))
-
-      else:
-         this_batch_size = element[0].shape[0]
-         real_loss, fake_loss, id_loss, Kt, convergence =   train_discriminator(element[0], this_batch_size, Kt)
-         train_generator()
-         if s%log_step == log_step-1:
-            print(' %d, %d/%d, ae=%.3f, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
-               (s, j, n_batches, ae_loss, real_loss, fake_loss, id_loss, Kt, convergence))
+      this_batch_size = element[0].shape[0]
+      real_loss, fake_loss, id_loss, Kt, convergence =   train_discriminator(element[0], this_batch_size, Kt)
+      train_generator()
+      if s%log_step == log_step-1:
+         print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
+            (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence))
 
 print("DONE, saving...")
 save_models()

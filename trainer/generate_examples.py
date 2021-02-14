@@ -12,6 +12,9 @@ else:
    MODEL_PATH = "began"
 
 
+AUTOENCODER_PATH = f'autoencoder_64_32_8'
+
+
 latent_dim = 32
 PATH = '../data/celeba'
 IMG_SIZE = 64
@@ -34,9 +37,10 @@ images = next(iter(dataset))[0]
 noise = tf.random.uniform([16, latent_dim], minval=-1)
 discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
 generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
-autoencoder = tf.keras.models.load_model(MODEL_PATH+"/autoencoder")
+encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
+decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
 
-reproduced = autoencoder(images)
+reproduced = encoder(decoder(images))
 discriminated = discriminator(images)
 generated = generator(noise)
 

@@ -12,9 +12,10 @@ from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
 GCP_BUCKET = "rantahar-nn"
-learning_rate = 0.0008
+learning_rate = 0.0001
 min_learning_rate = 0.00002
 lr_update_step = 10000
+pure_autoencoder_updates = 1000
 gamma = 0.5
 lambda_Kt = 0.001
 id_weight = 0.1
@@ -23,12 +24,13 @@ BATCH_SIZE = 16
 IMG_SIZE = 64
 dcl = 8
 gcl = 8
-latent_dim = 64
+latent_dim = 32
+middle_latent_dim = 8
 
-MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}'
+MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}_{middle_latent_dim}'
 
 # Specific training parameters
-samples = 4000
+samples = 10000
 SAVE_PATH = MODEL_PATH
 DATA_PATH = 'celeba'
 save_every = 5000
@@ -51,7 +53,7 @@ if remote:
 	print(subprocess.list2cmdline(cmd))
 	subprocess.call(cmd)
 else:
-   save_every = 1000
+   save_every = 500
    log_step = 1
    DATA_PATH = '../data/' + DATA_PATH
 
@@ -66,12 +68,14 @@ def flip(image, label):
    return image, label
 
 dataset = image_dataset_from_directory(DATA_PATH,
-                                       batch_size=1,
+                                       shuffle=True,
+                                       batch_size=BATCH_SIZE,
                                        image_size=(IMG_SIZE,IMG_SIZE))
-n_images = tf.data.experimental.cardinality(dataset)
 
-dataset = dataset.unbatch().map(normalize).cache().map(flip).shuffle(100).batch(BATCH_SIZE)
-n_batches = n_images//BATCH_SIZE
+dataset = dataset.map(normalize).map(flip)
+n_batches = tf.data.experimental.cardinality(dataset)
+epochs = samples//n_batches + 1
+
 
 init = RandomNormal(stddev=0.02)
 
@@ -107,14 +111,22 @@ def to_rpg(x, n_colors = 3):
 
 
 
-def make_generator(n_in, gcl, n_out):
+def make_small_generator(n_in, gcl, n_out):
    input = tf.keras.Input(shape=(n_in))
    n_nodes = gcl * 4 * 4
    x = layers.Dense(n_nodes)(input)
    x = layers.Reshape((4, 4, gcl))(x)
    x = upscale_block(x, gcl)
+   x = conv_block(x, gcl)
+   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   model = Model(inputs = input, outputs = output)
+   return model
+
+def make_big_generator(input_shape, gcl, n_out):
+   input = tf.keras.Input(shape=input_shape)
+   size = input_shape[1]
+   x = input
    image = to_rpg(x)
-   size = 8
    while size < IMG_SIZE:
       x = upscale_block(x, gcl)
       image = upscale(image) + to_rpg(x)
@@ -122,35 +134,31 @@ def make_generator(n_in, gcl, n_out):
    model = Model(inputs = input, outputs = image)
    return model
 
-
-g1 = make_generator(latent_dim, gcl, 3)
-g1.summary()
-
-def make_encoder(input_shape, dcl, latent_dim):
-   features = input_shape[-1]
-   input_size = input_shape[1]
+def make_small_encoder(input_shape, dcl, latent_dim):
    input = tf.keras.Input(shape=input_shape)
-   x = input
-   size = 64
-   s = 1
-   while size > 4:
-      x = downscale_block(x, dcl*s)
-      s*=2
-      size /= 2
-   x = downscale_block(x, dcl*s)
+   x = downscale_block(input, dcl)
+   x = conv_block(x, dcl)
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim*2)(x)
    output = layers.Dense(latent_dim)(x)
    model = Model(inputs = input, outputs = output)
    return model
 
-enc1 = make_encoder((IMG_SIZE, IMG_SIZE, 3), dcl, latent_dim)
-enc1.summary()
+def make_big_encoder(dcl, n_out):
+   input = tf.keras.Input(shape=(IMG_SIZE, IMG_SIZE, 3))
+   size = IMG_SIZE
+   s = 1
+   x = input
+   while size > 8:
+      x = downscale_block(x, dcl)
+      s*=2
+      size /= 2
+   x = conv_block(x, dcl)
+   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   model = Model(inputs = input, outputs = output)
+   return model
 
-dec1 = make_generator(latent_dim, gcl, 3)
-dec1.summary()
-
-def combine_models((steps)):
+def combine_models(steps):
    input_shape = steps[0].input_shape[1:]
    input = tf.keras.Input(shape=input_shape)
    x = input
@@ -160,36 +168,77 @@ def combine_models((steps)):
    model = Model(inputs = input, outputs = output)
    return model
 
-d1 = combine_models((enc1, dec1))
-d1.summary()
+# encoder: image to latend dim
+big_enc = make_big_encoder(dcl, middle_latent_dim)
+big_enc.summary()
+#small_enc = make_small_encoder(big_enc.output_shape[1:], dcl, latent_dim)
+#small_enc.summary()
 
+# decoder: latent dim to image
+#small_dec = make_small_generator(latent_dim, gcl)
+#small_dec.summary()
+big_dec = make_big_generator(big_enc.output_shape[1:], gcl, 3)
+big_dec.summary()
+
+# full autoencoder
+autoencoder = combine_models((big_enc, big_dec))
+
+# dicriminator: combine small encoder and decoder
+d1 = make_small_encoder(big_enc.output_shape[1:], dcl, latent_dim)
+d1.summary()
+d2 = make_small_generator(latent_dim, gcl, middle_latent_dim)
+d2.summary()
+
+small_discriminator = combine_models((d1, d2))
+
+# full dicscriminator
+discriminator = combine_models((big_enc, small_discriminator, big_dec))
+
+# generator: just a small decoder
+small_generator = make_small_generator(latent_dim, gcl, middle_latent_dim)
+small_generator.summary()
+
+# full generator
+generator = combine_models((small_generator, big_dec))
 
 tf_lr = tf.Variable(learning_rate)
-d1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
-g1_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+disc_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
+gen_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 ae_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 
+
+
+@tf.function
+def train_autoencoder(images):
+   with tf.GradientTape(persistent=True) as tape:
+      reproduction = autoencoder(images)
+      loss = tf.math.reduce_mean(tf.math.abs(reproduction - images))
+
+   gradients = tape.gradient(loss, autoencoder.trainable_variables)
+   ae_optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
+   return loss
 
 
 
 @tf.function
 def train_discriminator(images, batch_size, Kt):
    z = tf.random.uniform([batch_size, latent_dim], minval=-1)
+   image_encodings = big_enc(images)
 
    with tf.GradientTape(persistent=True) as tape:
-      real_image_quality = d1(images)
-      real_loss = tf.math.reduce_mean(tf.math.abs(real_image_quality - images))
+      real_quality = small_discriminator(image_encodings)
+      real_loss = tf.math.reduce_mean(tf.math.abs(real_quality - image_encodings))
 
-      fake_images = g1(z)
-      fake_qualities = d1(fake_images)
-      encoding = enc1(fake_images)
+      fake_encodings = small_generator(z)
+      fake_qualities = small_discriminator(fake_encodings)
+      z_d = d1(fake_encodings)
 
-      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_images - fake_qualities))
-      id_loss = tf.math.reduce_mean(tf.math.abs(encoding - z))
-      d1_loss = real_loss - Kt * fake_loss + id_weight * id_loss
+      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_encodings - fake_qualities))
+      id_loss = tf.math.reduce_mean(tf.math.abs(z_d - z))
+      loss = real_loss - Kt * fake_loss + id_weight * id_loss
 
-   d1_gradients = tape.gradient(d1_loss, d1.trainable_variables)
-   d1_optimizer.apply_gradients(zip(d1_gradients, d1.trainable_variables))
+   gradients = tape.gradient(loss, small_discriminator.trainable_variables)
+   disc_optimizer.apply_gradients(zip(gradients, small_discriminator.trainable_variables))
 
    Kt = Kt + lambda_Kt * (gamma * real_loss - fake_loss)
    if Kt < 0.001:
@@ -207,17 +256,18 @@ def train_generator():
    z = tf.random.uniform([BATCH_SIZE, latent_dim], minval=-1)
 
    with tf.GradientTape(persistent=True) as tape:
-      fake_images = g1(z)
-      fake_qualities = d1(fake_images)
-      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_images - fake_qualities))
+      fake_encodings = small_generator(z)
+      fake_qualities = small_discriminator(fake_encodings)
+      loss = tf.math.reduce_mean(tf.math.abs(fake_encodings - fake_qualities))
 
-   g1_gradients = tape.gradient(fake_loss, g1.trainable_variables)
-   g1_optimizer.apply_gradients(zip(g1_gradients, g1.trainable_variables))
+   gradients = tape.gradient(loss, small_generator.trainable_variables)
+   gen_optimizer.apply_gradients(zip(gradients, small_generator.trainable_variables))
 
 
 def save_models():
-   d1.save(SAVE_PATH+"/discriminator")
-   g1.save(SAVE_PATH+"/generator")
+   discriminator.save(SAVE_PATH+"/discriminator")
+   generator.save(SAVE_PATH+"/generator")
+   autoencoder.save(SAVE_PATH+"/autoencoder")
    if remote:
       print("Uploading model")
       subprocess.call([
@@ -228,29 +278,36 @@ def save_models():
 
 # train the discriminator and decoder
 Kt = 0
-s=0
+s = 0
 # manually enumerate epochs
-while s < samples:
-   j=0
+for i in range(epochs):
    for element in dataset:
-      s+=1
-      j+=1
-      if s%save_every == 0:
+      s += 1
+      j = s%n_batches
+
+      if s%save_every == save_every-1:
          save_models()
          print("saved")
+
       if s%lr_update_step == lr_update_step-1:
          if learning_rate > min_learning_rate:
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
-      this_batch_size = element[0].shape[0]
-      real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element[0], this_batch_size, Kt)
-      train_generator()
-      if s%log_step == log_step-1:
-         print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
-            (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence))
 
-      if s > samples:
-         break
+      ae_loss = train_autoencoder(element[0])
 
+      if s < pure_autoencoder_updates:
+         if s%log_step == log_step-1:
+            print(' %d, %d/%d, ae=%.3f' % (s, j, n_batches, ae_loss))
 
+      else:
+         this_batch_size = element[0].shape[0]
+         real_loss, fake_loss, id_loss, Kt, convergence =   train_discriminator(element[0], this_batch_size, Kt)
+         train_generator()
+         if s%log_step == log_step-1:
+            print(' %d, %d/%d, ae=%.3f, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
+               (s, j, n_batches, ae_loss, real_loss, fake_loss, id_loss, Kt, convergence))
+
+print("DONE, saving...")
 save_models()
+print("saved")

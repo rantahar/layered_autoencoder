@@ -41,7 +41,7 @@ n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
 
-autoencoder = Autoencoder(IMG_SIZE, size, encoding_size)
+autoencoder = Autoencoder(IMG_SIZE, size, encoding_size, scalings_per_step = 2)
 
 if remote:
    autoencoder.train(dataset, epochs, bucket = GCP_BUCKET, log_step = log_step,

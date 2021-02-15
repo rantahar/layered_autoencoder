@@ -67,10 +67,11 @@ def downscale_block(x, size):
 
 
 # Reduce the image size by a factor of 4 and encode each pixel to n_out numbers
-def make_encoder(shape, dcl, n_out):
+def make_encoder(shape, dcl, n_out, n_scalings = 2):
    input = tf.keras.Input(shape=shape)
-   x = downscale_block(input, dcl)
-   x = downscale_block(x, dcl)
+   x = input
+   for i in range(n_scalings):
+      x = downscale_block(x, dcl)
    output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    model = Model(inputs = input, outputs = output)
    return model
@@ -79,7 +80,7 @@ def make_encoder(shape, dcl, n_out):
 # Encode a small image to a single latent space vector
 def make_encoder_head(input_shape, dcl, latent_dim):
    input = tf.keras.Input(shape=input_shape)
-   size = input_shape[2]
+   size = input_shape[1]
    if size > 4:
       x = downscale_block(input, dcl)
    else:
@@ -110,11 +111,12 @@ def make_decoder_head(latent_dim, gcl, out_shape):
    return model
 
 # Increase image size by a factor of 4 and encode each pixel to n_out numbers
-def make_decoder(input_shape, gcl, n_out):
+def make_decoder(input_shape, gcl, n_out, scalings = 2):
    input = tf.keras.Input(shape=input_shape)
    rgb = to_rgb(input, n_out)
-   rgb, x = upscale_skip_block(rgb, input, gcl, n_out)
-   rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
+   x = input
+   for i in range(scalings):
+      rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
    model = Model(inputs = input, outputs = rgb)
    return model
 
@@ -136,6 +138,7 @@ def combine_models(steps):
 
 class Autoencoder():
    def __init__(self, IMG_SIZE = 64, size = 32, latent_dim = None,
+                scalings_per_step = 2,
                 encoding_size = None, learning_rate = 0.0001, beta = 0.9,
                 save_path = None, load = False):
       if encoding_size is None:
@@ -164,12 +167,12 @@ class Autoencoder():
          in_shape = (IMG_SIZE, IMG_SIZE, 3)
          while in_shape[1] > 8:
 
-            encoder = make_encoder(in_shape, size, self.encoding_size)
+            encoder = make_encoder(in_shape, size, self.encoding_size, scalings_per_step)
             encoder.summary()
 
             shape = encoder.output_shape[1:]
 
-            decoder = make_decoder(shape, size, in_shape[-1])
+            decoder = make_decoder(shape, size, in_shape[-1], scalings_per_step)
             decoder.summary()
 
             # full autoencoder
@@ -192,22 +195,22 @@ class Autoencoder():
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
 
+   # Training function needs to be rebuilt for each level
+   def training_step(self, level):
+      @tf.function
+      def training_function(ae, images):
+         target = images
+         for i in range(level):
+            target = ae.levels[i][0](target)
+         autoencoder = ae.levels[level][2]
+         with tf.GradientTape(persistent=True) as tape:
+            reproduction = autoencoder(target)
+            loss = tf.math.reduce_mean(tf.math.square(reproduction - target))
 
-   def training_step(self, images, level):
-      target = images
-      for i in range(level):
-         target = self.levels[i][0](target)
-      print(target.shape)
-      autoencoder = self.levels[level][2]
-      print(autoencoder.input_shape)
-      print(autoencoder.output_shape)
-      with tf.GradientTape(persistent=True) as tape:
-         reproduction = autoencoder(target)
-         loss = tf.math.reduce_mean(tf.math.abs(reproduction - target))
-
-      gradients = tape.gradient(loss, autoencoder.trainable_variables)
-      self.optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
-      return loss
+         gradients = tape.gradient(loss, autoencoder.trainable_variables)
+         ae.optimizer.apply_gradients(zip(gradients, autoencoder.trainable_variables))
+         return loss
+      return training_function
 
    def save(self, bucket = None):
       for i, l in enumerate(self.levels):
@@ -241,23 +244,26 @@ class Autoencoder():
    @tf.function
    def evaluate(self, images, level):
       x = images
-      for i in range(level):
+      for i in range(level+1):
          x = self.levels[i][0](x)
-      for i in range(level):
-         x = self.levels[level-i-1][1](x)
-      loss = tf.math.reduce_mean(tf.math.abs(x - images))
+      for i in range(level+1):
+         x = self.levels[level-i][1](x)
+      loss = tf.math.reduce_mean(tf.math.square(x - images))
       return loss
 
    @tf.function
    def generate(self, images, level):
       x = images
-      for i in range(level):
+      for i in range(level+1):
          x = self.levels[i][0](x)
-      for i in range(level):
-         x = self.levels[level-i-1][1](x)
+         print(x.shape)
+      for i in range(level+1):
+         x = self.levels[level-i][1](x)
       return x
 
-   def train(self, dataset, epochs, bucket = None, level_target = 0.1, log_step = 50,
+
+   def train(self, dataset, epochs, bucket = None, log_step = 50,
+             target_first = 0.02, target_increase = 0.01,
              save_every = 5000, learning_rate = 0.0001, lr_update_step = 10000,
              min_learning_rate = 0.00002, level = None):
 
@@ -265,6 +271,7 @@ class Autoencoder():
       n_batches = tf.data.experimental.cardinality(dataset)
       for level in range(self.n_levels):
          s = 0
+         training_function = self.training_step(level)
          for i in range(epochs):
             for element in dataset:
                s += 1
@@ -279,17 +286,20 @@ class Autoencoder():
                      learning_rate = learning_rate/2
                      self.learning_rate.assign(learning_rate)
 
-               loss = self.training_step(element, level)
+               if s%log_step == log_step-1:
+                  full_loss = self.evaluate(element, level)
+
+               loss = training_function(self, element)
 
                if s%log_step == log_step-1:
-                  full_loss = self.evaluate(element, level+1)
-                  print(' %d, %d/%d, ae=%.3f, full_loss=%.3f' %
-                     (s, j, n_batches, loss, full_loss))
+                  print(' %d, %d/%d, l=%d, ae=%.3f, full_loss=%.3f' %
+                     (s, j, n_batches, level, loss, full_loss))
 
-               if loss < level_target:
-                  break
+                  if full_loss < (target_first + level*target_increase):
+                     self.save(bucket)
+                     break
 
-            if loss < level_target:
+            if full_loss < (target_first + level*target_increase):
                break
 
       print("DONE")

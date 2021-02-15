@@ -44,12 +44,11 @@ epochs = samples//n_batches + 1
 autoencoder = Autoencoder(IMG_SIZE, size, encoding_size)
 
 if remote:
-   autoencoder.train(dataset, epochs, bucket = GCP_BUCKET,
-                     learning_rate = learning_rate, log_step = log_step,
+   autoencoder.train(dataset, epochs, bucket = GCP_BUCKET, log_step = log_step,
                      save_every = save_every)
    autoencoder.save(bucket = GCP_BUCKET)
 
 else:
-   autoencoder.train(dataset, epochs, learning_rate = learning_rate,
-                     log_step = log_step, save_every = save_every)
+   autoencoder.train(dataset, epochs, log_step = log_step,
+                     save_every = save_every)
    autoencoder.save()

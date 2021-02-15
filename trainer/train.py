@@ -184,7 +184,7 @@ for i in range(epochs):
             tf_lr.assign(learning_rate)
 
       this_batch_size = element[0].shape[0]
-      real_loss, fake_loss, id_loss, Kt, convergence =   train_discriminator(element[0], this_batch_size, Kt)
+      real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element[0], this_batch_size, Kt)
       train_generator()
       if s%log_step == log_step-1:
          print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %

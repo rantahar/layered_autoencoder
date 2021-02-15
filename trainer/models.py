@@ -257,7 +257,7 @@ class Autoencoder():
          x = self.levels[level-i-1][1](x)
       return x
 
-   def train(self, dataset, epochs, bucket = None, level_target = 0.3, log_step = 50,
+   def train(self, dataset, epochs, bucket = None, level_target = 0.1, log_step = 50,
              save_every = 5000, learning_rate = 0.0001, lr_update_step = 10000,
              min_learning_rate = 0.00002, level = None):
 

@@ -15,7 +15,7 @@ else:
 AUTOENCODER_PATH = f'autoencoder_64_32_8'
 
 
-latent_dim = 32
+latent_dim = 64
 PATH = '../data/celeba'
 IMG_SIZE = 64
 BATCH_SIZE = 5
@@ -40,7 +40,7 @@ generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
 encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
 decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
 
-reproduced = encoder(decoder(images))
+reproduced = decoder(encoder(images))
 discriminated = discriminator(images)
 generated = generator(noise)
 

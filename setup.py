@@ -4,7 +4,7 @@ from setuptools import setup
 REQUIRED_PACKAGES = ["tensorflow", "numpy"]
 
 setup(
-    name='trainer',
+    name='layered_autoencoder',
     version='0.0',
     install_requires=REQUIRED_PACKAGES,
     packages=find_packages(),

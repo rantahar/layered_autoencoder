@@ -9,8 +9,8 @@ from tensorflow.keras import layers
 from tensorflow.keras import backend
 from tensorflow.keras.initializers import RandomNormal
 
-from trainer.models import Autoencoder
-import trainer.data
+from layered_autoencoder.models import Autoencoder
+import layered_autoencoder.data
 
 
 BATCH_SIZE = 16
@@ -36,14 +36,14 @@ else:
    bucket = None
 
 
-#dataset = trainer.data.from_folder(DATA_PATH, IMG_SIZE, BATCH_SIZE, bucket)
-dataset = trainer.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+#dataset = layered_autoencoder.data.from_folder(DATA_PATH, IMG_SIZE, BATCH_SIZE, bucket)
+dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
 
 autoencoder = Autoencoder(IMG_SIZE, size, encoding_size, latent_dim,
-                          scalings_per_step = 2)
+                          scalings_per_step = 3)
 
 if remote:
    autoencoder.train(dataset, epochs, bucket = GCP_BUCKET, log_step = log_step,

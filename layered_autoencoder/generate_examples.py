@@ -4,8 +4,8 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing import image_dataset_from_directory
-from trainer.models import Autoencoder
-import trainer.data
+from layered_autoencoder.models import Autoencoder
+import layered_autoencoder.data
 
 if len(sys.argv) > 1:
    autoencoder_path = sys.argv[1]
@@ -23,7 +23,7 @@ latent_dim = 64
 IMG_SIZE = 64
 BATCH_SIZE = 5
 
-dataset = trainer.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 images = next(iter(dataset.take(1)))
 
 autoencoder = Autoencoder(save_path = autoencoder_path, load = True)

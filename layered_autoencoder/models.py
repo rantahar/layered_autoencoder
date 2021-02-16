@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import subprocess
+import time
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
@@ -10,7 +11,6 @@ from tensorflow.keras import backend
 from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
-
 
 init = RandomNormal(stddev=0.02)
 
@@ -284,11 +284,13 @@ class Autoencoder():
                if s%log_step == log_step-1:
                   full_loss = self.evaluate(element, level)
 
+               start = time.time()
                loss = training_function(self, element)
+               elapsed = time.time() - start
 
                if s%log_step == log_step-1:
-                  print(' %d, %d/%d, l=%d, ae=%.3f, full_loss=%.3f' %
-                     (s, j, n_batches, level, loss, full_loss))
+                  print(' %d, %d/%d, l=%d, ae=%.3f, full_loss=%.3f, time=%.2fs' %
+                     (s, j, n_batches, level, loss, full_loss, elapsed))
 
                   if full_loss < (target_first + level*target_increase):
                      self.save(bucket)

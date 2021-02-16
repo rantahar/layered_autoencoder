@@ -78,7 +78,7 @@ n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
 
-from trainer import models
+from layered_autoencoder import models
 
 
 # load incoder and decoder

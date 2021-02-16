@@ -65,61 +65,62 @@ def downscale_block(x, size):
    x = x + downscaled
    return x
 
-
-# Reduce the image size by a factor of 4 and encode each pixel to n_out numbers
-def make_encoder(shape, dcl, n_out, n_scalings = 2):
-   input = tf.keras.Input(shape=shape)
-   x = input
-   for i in range(n_scalings):
-      x = downscale_block(x, dcl)
-   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
-   model = Model(inputs = input, outputs = output)
-   return model
-
-
-# Encode a small image to a single latent space vector
-def make_encoder_head(input_shape, dcl, latent_dim):
-   input = tf.keras.Input(shape=input_shape)
-   size = input_shape[1]
-   if size > 4:
-      x = downscale_block(input, dcl)
-   else:
-      x = input
+# At the end of an encoder, flatten and map to a single latent space vector
+def encoder_head(x, latent_dim):
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim*2)(x)
-   output = layers.Dense(latent_dim)(x)
-   model = Model(inputs = input, outputs = output)
-   return model
-
+   x = layers.Dense(latent_dim, activation='tanh')(x)
+   return x
 
 # generate small image from a latent space vector
-def make_decoder_head(latent_dim, gcl, out_shape):
-   input = tf.keras.Input(shape=(latent_dim))
-   img_size = out_shape[1]
-   if img_size > 4:
-      s = img_size // 2
-   else:
-      s = img_size
-   n_nodes = gcl * s * s
-   x = layers.Dense(gcl)(input)
+def decoder_head(x, size, gcl):
+   n_nodes = gcl * size * size
+   x = layers.Dense(gcl)(x)
    x = layers.Dense(n_nodes)(x)
-   x = layers.Reshape((s, s, gcl))(x)
-   if img_size > 4:
-      x = upscale_block(x, gcl)
-   output = to_rgb(x, out_shape[-1])
-   model = Model(inputs = input, outputs = output)
-   return model
+   x = layers.Reshape((size, size, gcl))(x)
+   return x
+
+
+# Reduce the image size by a factor of 4 and encode each pixel to n_out numbers
+# If the image size drops below 7, map it to a single vector
+def make_encoder(shape, dcl, n_out, n_scalings = 2, latent_dim = None):
+   input = tf.keras.Input(shape=shape)
+   size = shape[1]
+   x = input
+   for i in range(n_scalings):
+      if size > 7:
+         x = downscale_block(x, dcl)
+      else:
+         output = encoder_head(x, latent_dim)
+         return Model(inputs = input, outputs = output)
+      size //= 2
+   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   return Model(inputs = input, outputs = output)
+
 
 # Increase image size by a factor of 4 and encode each pixel to n_out numbers
-def make_decoder(input_shape, gcl, n_out, scalings = 2):
+# If starting from a 1D vector, first decode it into a small image
+def make_decoder(input_shape, gcl, target_shape):
+   n_out = target_shape[-1]
+   target_size = target_shape[1] # target shape is always an image
+
    input = tf.keras.Input(shape=input_shape)
-   rgb = to_rgb(input, n_out)
-   x = input
-   for i in range(scalings):
+   if len(input_shape) == 1:
+      size = target_size
+      while size > 7:
+         size //= 2
+      x = decoder_head(input, size, gcl)
+   else:
+      size = input_shape[1]
+      x = input
+
+   rgb = to_rgb(x, n_out)
+   while size < target_size:
       rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
+      size *= 2
+
    model = Model(inputs = input, outputs = rgb)
    return model
-
 
 
 # Combine a set of models
@@ -137,10 +138,10 @@ def combine_models(steps):
 
 
 class Autoencoder():
-   def __init__(self, IMG_SIZE = 64, size = 32, latent_dim = None,
-                scalings_per_step = 2,
-                encoding_size = None, learning_rate = 0.0001, beta = 0.9,
-                save_path = None, load = False):
+   def __init__(self, IMG_SIZE = 64, size = 32, encoding_size = None,
+                latent_dim = None, scalings_per_step = 2,
+                learning_rate = 0.0001, beta = 0.9, save_path = None,
+                load = False):
       if encoding_size is None:
          self.encoding_size = size
       else:
@@ -165,14 +166,16 @@ class Autoencoder():
          self.load()
       else:
          in_shape = (IMG_SIZE, IMG_SIZE, 3)
-         while in_shape[1] > 8:
+         while len(in_shape) > 1:
 
-            encoder = make_encoder(in_shape, size, self.encoding_size, scalings_per_step)
+            encoder = make_encoder(in_shape, size, self.encoding_size,
+                                   scalings_per_step, self.latent_dim)
             encoder.summary()
 
             shape = encoder.output_shape[1:]
+            print(shape)
 
-            decoder = make_decoder(shape, size, in_shape[-1], scalings_per_step)
+            decoder = make_decoder(shape, size, in_shape)
             decoder.summary()
 
             # full autoencoder
@@ -181,14 +184,6 @@ class Autoencoder():
             self.levels.append((encoder, decoder, autoencoder))
 
             in_shape = shape
-
-         encoder = make_encoder_head(in_shape, size, self.latent_dim)
-         encoder.summary()
-         decoder = make_decoder_head(latent_dim, size, in_shape)
-         decoder.summary()
-         autoencoder = combine_models((encoder, decoder))
-
-         self.levels.append((encoder, decoder, autoencoder))
 
       self.n_levels = len(self.levels)
 
@@ -263,7 +258,7 @@ class Autoencoder():
 
 
    def train(self, dataset, epochs, bucket = None, log_step = 50,
-             target_first = 0.02, target_increase = 0.01,
+             target_first = 0.08, target_increase = 0.01,
              save_every = 5000, learning_rate = 0.0001, lr_update_step = 10000,
              min_learning_rate = 0.00002, level = None):
 

@@ -173,7 +173,6 @@ class Autoencoder():
             encoder.summary()
 
             shape = encoder.output_shape[1:]
-            print(shape)
 
             decoder = make_decoder(shape, size, in_shape)
             decoder.summary()
@@ -251,24 +250,26 @@ class Autoencoder():
       x = images
       for i in range(level+1):
          x = self.levels[i][0](x)
-         print(x.shape)
+         print("e", self.levels[i][0].output_shape)
       for i in range(level+1):
+         print("d", self.levels[level-i][1].input_shape)
          x = self.levels[level-i][1](x)
       return x
 
 
-   def train(self, dataset, epochs, bucket = None, log_step = 50,
-             target_first = 0.08, target_increase = 0.01,
+   def train(self, train_dataset, valid_dataset, epochs, bucket = None, log_step = 50,
+             target_first = 0.03, target_increase = 0.01,
              save_every = 5000, learning_rate = 0.0001, lr_update_step = 10000,
              min_learning_rate = 0.00002, level = None):
 
       self.learning_rate.assign(learning_rate)
-      n_batches = tf.data.experimental.cardinality(dataset)
+      n_batches = tf.data.experimental.cardinality(train_dataset)
       for level in range(self.n_levels):
          s = 0
+         valid_avg = 1
          training_function = self.training_step(level)
          for i in range(epochs):
-            for element in dataset:
+            for element in train_dataset:
                s += 1
                j = s%n_batches
 
@@ -281,22 +282,23 @@ class Autoencoder():
                      learning_rate = learning_rate/2
                      self.learning_rate.assign(learning_rate)
 
-               if s%log_step == log_step-1:
-                  full_loss = self.evaluate(element, level)
-
                start = time.time()
                loss = training_function(self, element)
                elapsed = time.time() - start
 
-               if s%log_step == log_step-1:
-                  print(' %d, %d/%d, l=%d, ae=%.3f, full_loss=%.3f, time=%.2fs' %
-                     (s, j, n_batches, level, loss, full_loss, elapsed))
+               valid_image = next(iter(valid_dataset.take(1)))
+               valid_loss = self.evaluate(valid_image, level)
+               valid_avg = 0.95*valid_avg + 0.05*valid_loss
 
-                  if full_loss < (target_first + level*target_increase):
+               if s%log_step == log_step-1:
+                  print(' %d, %d/%d, l=%d, loss=%.3f, avg_valid_loss=%.3f, time=%.2fs' %
+                     (s, j, n_batches, level, loss, valid_avg, elapsed))
+
+                  if valid_avg < (target_first + level*target_increase):
                      self.save(bucket)
                      break
 
-            if full_loss < (target_first + level*target_increase):
+            if valid_avg < (target_first + level*target_increase):
                break
 
       print("DONE")

@@ -23,7 +23,7 @@ latent_dim = 64
 IMG_SIZE = 64
 BATCH_SIZE = 5
 
-dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+dataset, _ = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 images = next(iter(dataset.take(1)))
 
 autoencoder = Autoencoder(save_path = autoencoder_path, load = True)

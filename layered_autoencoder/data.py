@@ -59,6 +59,8 @@ def from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
    return dataset
 
 def get_celeba(IMG_SIZE, BATCH_SIZE):
-   dataset = tfds.load('celeb_a', split='train', batch_size=BATCH_SIZE,
+   train_dataset = tfds.load('celeb_a', split='train', batch_size=BATCH_SIZE,
                     shuffle_files=True).map(get_celeba_normalizer(IMG_SIZE))
-   return dataset
+   valid_dataset = tfds.load('celeb_a', split='test', batch_size=BATCH_SIZE,
+                    shuffle_files=True).map(get_celeba_normalizer(IMG_SIZE))
+   return train_dataset, valid_dataset

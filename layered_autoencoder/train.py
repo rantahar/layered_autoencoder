@@ -22,7 +22,6 @@ latent_dim = 64
 # Specific training parameters
 remote = False
 samples = 10000
-DATA_PATH = 'celeba'
 
 
 if remote:
@@ -32,25 +31,24 @@ if remote:
 else:
    save_every = 500
    log_step = 1
-   DATA_PATH = '../data/' + DATA_PATH
    bucket = None
 
 
 #dataset = layered_autoencoder.data.from_folder(DATA_PATH, IMG_SIZE, BATCH_SIZE, bucket)
-dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
-n_batches = tf.data.experimental.cardinality(dataset)
+train_dataset, valid_dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+n_batches = tf.data.experimental.cardinality(train_dataset)
 epochs = samples//n_batches + 1
 
 
 autoencoder = Autoencoder(IMG_SIZE, size, encoding_size, latent_dim,
-                          scalings_per_step = 3)
+                          scalings_per_step = 2)
 
 if remote:
-   autoencoder.train(dataset, epochs, bucket = GCP_BUCKET, log_step = log_step,
+   autoencoder.train(train_dataset, valid_dataset, epochs, bucket = GCP_BUCKET, log_step = log_step,
                      save_every = save_every)
    autoencoder.save(bucket = GCP_BUCKET)
 
 else:
-   autoencoder.train(dataset, epochs, log_step = log_step,
+   autoencoder.train(train_dataset, valid_dataset, epochs, log_step = log_step,
                      save_every = save_every)
    autoencoder.save()

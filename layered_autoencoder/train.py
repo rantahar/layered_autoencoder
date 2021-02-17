@@ -40,7 +40,7 @@ n_batches = tf.data.experimental.cardinality(train_dataset)
 epochs = samples//n_batches + 1
 
 autoencoder = BlockedAutoencoder(IMG_SIZE, size, encoding_size, latent_dim,
-                          scalings_per_step = 2)
+                                 scalings_per_step = 2)
 
 #train_dataset = train_dataset.take(100)
 #valid_dataset = valid_dataset.take(10)

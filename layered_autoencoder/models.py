@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import subprocess
 import time
@@ -137,13 +138,12 @@ def combine_models(steps):
 
 
 
-class Autoencoder(Model):
+class Autoencoder():
    def __init__(self, shape, size, n_out, n_scalings = 2, latent_dim = None):
-      super(Autoencoder, self).__init__()
-
       self.encoder = make_encoder(shape, size, n_out, n_scalings, latent_dim)
       encoding_shape = self.encoder.output_shape[1:]
       self.decoder = make_decoder(encoding_shape, size, shape)
+      self.autoencoder = combine_models((self.encoder, self.decoder))
 
    def encoding_shape(self):
       return self.encoder.output_shape[1:]
@@ -168,6 +168,34 @@ class Autoencoder(Model):
    def decode(self, x):
       return self.decoder(x)
 
+   @tf.function
+   def train_step(self, images):
+      with tf.GradientTape(persistent=True) as tape:
+         reproduction = self.autoencoder(images)
+         loss = tf.math.reduce_mean(tf.math.square(reproduction - images))
+
+      gradients = tape.gradient(loss, self.autoencoder.trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, self.autoencoder.trainable_variables))
+      return loss
+
+   def train(self, dataset, epochs, learning_rate, beta=0.5):
+      self.learning_rate = tf.Variable(learning_rate)
+      self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
+      for e in range(epochs):
+         start = time.time()
+         for i, sample in enumerate(dataset):
+            end = time.time()
+            timing = end - start
+            start = time.time()
+
+            loss = self.train_step(sample)
+            sys.stdout.write(f"\repoch {e} step {i} loss {loss} time {timing} ")
+            sys.stdout.flush()
+         print("")
+
+
+
+
 
 class BlockedAutoencoder():
    def __init__(self, IMG_SIZE = 64, size = 32, encoding_size = None,
@@ -190,19 +218,15 @@ class BlockedAutoencoder():
       if save_path is not None:
          self.save_path = save_path
       else:
-         self.save_path = f'autoencoder_{IMG_SIZE}_{size}_{self.encoding_size}'
+         self.save_path = f'autoencoder_{IMG_SIZE}_{size}_{encoding_size}_{scalings_per_step}'
 
       self.levels = []
 
 
       in_shape = (IMG_SIZE, IMG_SIZE, 3)
       while len(in_shape) > 1:
-
          autoencoder = Autoencoder(in_shape, size, encoding_size, scalings_per_step, latent_dim)
-         autoencoder.compile(optimizer='adam', loss=tf.keras.losses.MeanSquaredError())
-
          self.levels.append(autoencoder)
-
          in_shape = autoencoder.encoding_shape()
 
       if load:
@@ -240,7 +264,7 @@ class BlockedAutoencoder():
          x = self.levels[i].encode(x)
       for i in range(level+1):
          x = self.levels[level-i].decode(x)
-      loss = tf.math.reduce_mean(tf.math.square(x - images))
+      loss = tf.keras.losses.MeanSquaredError()(x, images)
       return loss
 
    @tf.function
@@ -264,18 +288,16 @@ class BlockedAutoencoder():
             x = images
             for i in range(level):
                x = self.levels[i].encode(x)
-            return x, x
+            return x
          return encode_data
 
-      for level in range(self.n_levels):
-         autoencoder = self.levels[level]
-         x = train_dataset.map(encode_data_function(level))
-         y = valid_dataset.map(encode_data_function(level))
-         autoencoder.fit(x, epochs=epochs, shuffle=True,
-                         validation_data=(y))
+      for l, autoencoder in enumerate(self.levels):
+         x = train_dataset.map(encode_data_function(l))
+         y = valid_dataset.map(encode_data_function(l))
+         autoencoder.train(x, epochs, learning_rate)
 
          valid_image = next(iter(valid_dataset.take(1)))
-         valid_loss = self.evaluate(valid_image, level)
+         valid_loss = self.evaluate(valid_image, l)
          print(f"Full validation loss {valid_loss}")
 
          self.save()

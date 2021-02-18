@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing import image_dataset_from_directory
-from layered_autoencoder.models import Autoencoder
+from layered_autoencoder.models import BlockedAutoencoder
 import layered_autoencoder.data
 
 if len(sys.argv) > 1:
@@ -26,7 +26,7 @@ BATCH_SIZE = 5
 dataset, _ = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 images = next(iter(dataset.take(1)))
 
-autoencoder = Autoencoder(save_path = autoencoder_path, load = True)
+autoencoder = BlockedAutoencoder(save_path = autoencoder_path, load = True)
 
 reproduced = []
 for l in range(autoencoder.n_levels):
@@ -44,6 +44,8 @@ if gan_path is not None:
 fig=plt.figure(figsize=(8, 8))
 
 n_im = autoencoder.n_levels + 2
+
+print(autoencoder.n_levels)
 
 for i in range(4):
     fig.add_subplot(4, n_im, n_im*i+1)

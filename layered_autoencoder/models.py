@@ -139,11 +139,14 @@ def combine_models(steps):
 
 
 class Autoencoder():
-   def __init__(self, shape, size, n_out, n_scalings = 2, latent_dim = None):
-      self.encoder = make_encoder(shape, size, n_out, n_scalings, latent_dim)
-      encoding_shape = self.encoder.output_shape[1:]
-      self.decoder = make_decoder(encoding_shape, size, shape)
-      self.autoencoder = combine_models((self.encoder, self.decoder))
+   def __init__(self, shape=(64,64,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None, i=None):
+      if not load:
+         self.encoder = make_encoder(shape, size, n_out, n_scalings, latent_dim)
+         encoding_shape = self.encoder.output_shape[1:]
+         self.decoder = make_decoder(encoding_shape, size, shape)
+         self.autoencoder = combine_models((self.encoder, self.decoder))
+      else:
+         self.load(save_path, i)
 
    def encoding_shape(self):
       return self.encoder.output_shape[1:]
@@ -181,17 +184,19 @@ class Autoencoder():
    def train(self, dataset, epochs, learning_rate, beta=0.5):
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
+      n_batches = tf.data.experimental.cardinality(dataset).numpy()
       for e in range(epochs):
+         start_epoch = time.time()
          start = time.time()
          for i, sample in enumerate(dataset):
-            end = time.time()
-            timing = end - start
-            start = time.time()
-
             loss = self.train_step(sample)
-            sys.stdout.write(f"\repoch {e} step {i} loss {loss} time {timing} ")
+            end = time.time()
+            timing = (end - start)/float(i+1)
+
+            sys.stdout.write(f"\repoch {e}, step {i}/{n_batches}, loss {loss}, time per step {timing}")
             sys.stdout.flush()
-         print("")
+         sys.stdout.write("\n")
+         sys.stdout.flush()
 
 
 
@@ -222,14 +227,14 @@ class BlockedAutoencoder():
 
       self.levels = []
 
+      if not load:
+         in_shape = (IMG_SIZE, IMG_SIZE, 3)
+         while len(in_shape) > 1:
+            autoencoder = Autoencoder(in_shape, size, encoding_size, scalings_per_step, latent_dim)
+            self.levels.append(autoencoder)
+            in_shape = autoencoder.encoding_shape()
 
-      in_shape = (IMG_SIZE, IMG_SIZE, 3)
-      while len(in_shape) > 1:
-         autoencoder = Autoencoder(in_shape, size, encoding_size, scalings_per_step, latent_dim)
-         self.levels.append(autoencoder)
-         in_shape = autoencoder.encoding_shape()
-
-      if load:
+      else:
          self.load()
 
       self.n_levels = len(self.levels)
@@ -254,8 +259,13 @@ class BlockedAutoencoder():
       		os.path.join(self.save_path),
           	os.path.join('gs://', bucket)
          ])
-      for i, l in enumerate(self.levels):
-         l.load(self.save_path, i)
+      self.levels = []
+      i = 0
+      while os.path.isdir(f"{self.save_path}/decoder{i}"):
+         level = Autoencoder(load = True, save_path = self.save_path, i=i)
+         self.levels.append(level)
+         print("loaded level", i)
+         i+=1
 
    @tf.function
    def evaluate(self, images, level):

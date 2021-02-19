@@ -29,8 +29,9 @@ def conv_block(x, size):
 
 # Double image size
 def upscale(x):
-   img_size = x.shape[1]
-   x = tf.image.resize(x, (2*img_size, 2*img_size), method="nearest")
+   shape = tf.shape(x)
+   new_shape = 2 * shape[1:3]
+   x = tf.image.resize(x, new_shape, method="nearest")
    return x
 
 # Convolution + upscale
@@ -84,44 +85,56 @@ def decoder_head(x, size, gcl):
 
 # Reduce the image size by a factor of 4 and encode each pixel to n_out numbers
 # If the image size drops below 7, map it to a single vector
-def make_encoder(shape, dcl, n_out, n_scalings = 2, latent_dim = None):
+def make_encoder(shape, dcl, n_out=None, n_scalings = 2, latent_dim = None):
    input = tf.keras.Input(shape=shape)
    size = shape[1]
    x = input
    for i in range(n_scalings):
-      if size > 7:
+      if size is None:
          x = downscale_block(x, dcl)
       else:
-         output = encoder_head(x, latent_dim)
-         return Model(inputs = input, outputs = output)
-      size //= 2
+         if size > 7:
+           x = downscale_block(x, dcl)
+           size //= 2
+         else:
+           output = encoder_head(x, latent_dim)
+           return Model(inputs = input, outputs = output)
    output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
    return Model(inputs = input, outputs = output)
 
 
 # Increase image size by a factor of 4 and encode each pixel to n_out numbers
 # If starting from a 1D vector, first decode it into a small image
-def make_decoder(input_shape, gcl, target_shape):
+def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
    n_out = target_shape[-1]
    target_size = target_shape[1] # target shape is always an image
-
    input = tf.keras.Input(shape=input_shape)
-   if len(input_shape) == 1:
-      size = target_size
-      while size > 7:
-         size //= 2
-      x = decoder_head(input, size, gcl)
-   else:
-      size = input_shape[1]
+
+   if target_size is None:
       x = input
+      rgb = to_rgb(x, n_out)
+      for i in range(n_scalings):
+         rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
+      model = Model(inputs = input, outputs = rgb)
+      return model
 
-   rgb = to_rgb(x, n_out)
-   while size < target_size:
-      rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
-      size *= 2
+   else:
+      if len(input_shape) == 1:
+         size = target_size
+         while size > 7:
+            size //= 2
+         x = decoder_head(input, size, gcl)
+      else:
+         size = input_shape[1]
+         x = input
 
-   model = Model(inputs = input, outputs = rgb)
-   return model
+      rgb = to_rgb(x, n_out)
+      while size <= target_size//2:
+         rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
+         size *= 2
+
+      model = Model(inputs = input, outputs = rgb)
+      return model
 
 
 # Combine a set of models
@@ -139,14 +152,15 @@ def combine_models(steps):
 
 
 class Autoencoder():
-   def __init__(self, shape=(64,64,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None, i=None):
+   def __init__(self, shape=(None,None,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None, i=None):
       if not load:
          self.encoder = make_encoder(shape, size, n_out, n_scalings, latent_dim)
          encoding_shape = self.encoder.output_shape[1:]
-         self.decoder = make_decoder(encoding_shape, size, shape)
+         self.decoder = make_decoder(encoding_shape, size, shape, n_scalings)
          self.autoencoder = combine_models((self.encoder, self.decoder))
       else:
          self.load(save_path, i)
+         self.autoencoder = combine_models((self.encoder, self.decoder))
 
    def encoding_shape(self):
       return self.encoder.output_shape[1:]
@@ -157,11 +171,11 @@ class Autoencoder():
       x = self.decoder(x)
       return x
 
-   def save(self, path, i):
+   def save(self, path, i=""):
       self.encoder.save(f"{path}/encoder{i}")
       self.decoder.save(f"{path}/decoder{i}")
 
-   def load(self, path, i):
+   def load(self, path, i=""):
       self.encoder = tf.keras.models.load_model(f"{path}/encoder{i}")
       self.decoder = tf.keras.models.load_model(f"{path}/decoder{i}")
 
@@ -181,10 +195,11 @@ class Autoencoder():
       self.optimizer.apply_gradients(zip(gradients, self.autoencoder.trainable_variables))
       return loss
 
-   def train(self, dataset, epochs, learning_rate, beta=0.5):
+   def train(self, dataset, epochs=1, batches=None, learning_rate = 0.0001, beta=0.5):
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
-      n_batches = tf.data.experimental.cardinality(dataset).numpy()
+      if batches is None:
+         batches = tf.data.experimental.cardinality(dataset).numpy()
       for e in range(epochs):
          start_epoch = time.time()
          start = time.time()
@@ -193,11 +208,24 @@ class Autoencoder():
             end = time.time()
             timing = (end - start)/float(i+1)
 
-            sys.stdout.write(f"\repoch {e}, step {i}/{n_batches}, loss {loss}, time per step {timing}")
+            sys.stdout.write(f"\repoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}")
             sys.stdout.flush()
          sys.stdout.write("\n")
          sys.stdout.flush()
 
+   @tf.function
+   def evaluate_batch(self, images):
+      x = self.encode(images)
+      x = self.decode(x)
+      loss = tf.keras.losses.MeanSquaredError()(x, images)
+      return loss
+
+   def evaluate(self, dataset):
+      n_batches = tf.data.experimental.cardinality(train_dataset)
+      loss = 0
+      for images in dataset:
+         loss += evaluate_batch(images)
+      return loss / n_batches
 
 
 
@@ -304,7 +332,7 @@ class BlockedAutoencoder():
       for l, autoencoder in enumerate(self.levels):
          x = train_dataset.map(encode_data_function(l))
          y = valid_dataset.map(encode_data_function(l))
-         autoencoder.train(x, epochs, learning_rate)
+         autoencoder.train(x, epochs, learning_rate=learning_rate)
 
          valid_image = next(iter(valid_dataset.take(1)))
          valid_loss = self.evaluate(valid_image, l)

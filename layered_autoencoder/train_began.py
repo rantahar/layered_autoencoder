@@ -10,28 +10,29 @@ from tensorflow.keras import backend
 from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
+import layered_autoencoder.data
+from layered_autoencoder import models
 
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.0001
 min_learning_rate = 0.00002
 lr_update_step = 10000
-pure_autoencoder_updates = 1000
 gamma = 0.5
 lambda_Kt = 0.001
 id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 16
-gcl = 16
+dcl = 32
+gcl = 32
 latent_dim = 64
 middle_latent_dim = 8
 
-AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_32_{middle_latent_dim}'
-MODEL_PATH = f'edbegan_{IMG_SIZE}_{dcl}_{gcl}_{middle_latent_dim}'
+AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_64_64_3'
+MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{middle_latent_dim}'
 
 # Specific training parameters
-samples = 10000
+samples = 500000
 SAVE_PATH = MODEL_PATH
 DATA_PATH = 'celeba'
 save_every = 5000
@@ -54,41 +55,24 @@ if remote:
 	print(subprocess.list2cmdline(cmd))
 	subprocess.call(cmd)
 else:
-   save_every = 500
-   log_step = 1
+   save_every = 5000
    DATA_PATH = '../data/' + DATA_PATH
 
 
-def normalize(image, label):
-   image = tf.cast(image, tf.float32)
-   image = (image / 127.5) - 1
-   return image, label
-
-def flip(image, label):
-   tf.image.random_flip_left_right(image)
-   return image, label
-
-dataset = image_dataset_from_directory(DATA_PATH,
-                                       shuffle=True,
-                                       batch_size=BATCH_SIZE,
-                                       image_size=(IMG_SIZE,IMG_SIZE))
-
-dataset = dataset.map(normalize).map(flip)
+dataset, _ = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
 
-from layered_autoencoder import models
 
-
-# load incoder and decoder
-encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
-decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
+# Get the first encoder and decoder levels
+encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder0")
+decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder0")
 
 # dicriminator: combine small encoder and decoder
-d1 = models.make_small_encoder(encoder.output_shape[1:], dcl, latent_dim)
+d1 = models.make_encoder(encoder.output_shape[1:], dcl, latent_dim=latent_dim, n_scalings = 100)
 d1.summary()
-d2 = models.make_small_generator(latent_dim, gcl, middle_latent_dim)
+d2 = models.make_decoder(d1.output_shape[1:], gcl, encoder.output_shape[1:])
 d2.summary()
 
 small_discriminator = models.combine_models((d1, d2))
@@ -97,7 +81,7 @@ small_discriminator = models.combine_models((d1, d2))
 discriminator = models.combine_models((encoder, small_discriminator, decoder))
 
 # generator: just a small decoder
-small_generator = models.make_small_generator(latent_dim, gcl, middle_latent_dim)
+small_generator = models.make_decoder(d1.output_shape[1:], gcl, encoder.output_shape[1:])
 small_generator.summary()
 
 # full generator
@@ -115,7 +99,7 @@ def train_discriminator(images, batch_size, Kt):
    z = tf.random.uniform([batch_size, latent_dim], minval=-1)
    image_encodings = encoder(images)
 
-   with tf.GradientTape(persistent=True) as tape:
+   with tf.GradientTape() as tape:
       real_quality = small_discriminator(image_encodings)
       real_loss = tf.math.reduce_mean(tf.math.abs(real_quality - image_encodings))
 
@@ -145,7 +129,7 @@ def train_discriminator(images, batch_size, Kt):
 def train_generator():
    z = tf.random.uniform([BATCH_SIZE, latent_dim], minval=-1)
 
-   with tf.GradientTape(persistent=True) as tape:
+   with tf.GradientTape() as tape:
       fake_encodings = small_generator(z)
       fake_qualities = small_discriminator(fake_encodings)
       loss = tf.math.reduce_mean(tf.math.abs(fake_encodings - fake_qualities))
@@ -184,7 +168,7 @@ for i in range(epochs):
             tf_lr.assign(learning_rate)
 
       this_batch_size = element[0].shape[0]
-      real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element[0], this_batch_size, Kt)
+      real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element, this_batch_size, Kt)
       train_generator()
       if s%log_step == log_step-1:
          print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %

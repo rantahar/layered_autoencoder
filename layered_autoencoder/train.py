@@ -1,27 +1,20 @@
-import numpy as np
-import os
-import subprocess
+# Creates a single image size independent autoencoder block and
+# trains it on the celeb_a or the imagenet dataset
 
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.models import Model
-from tensorflow.keras import layers
-from tensorflow.keras import backend
-from tensorflow.keras.initializers import RandomNormal
-
-from layered_autoencoder.models import BlockedAutoencoder
+from layered_autoencoder.models import Autoencoder
 import layered_autoencoder.data
 
 
 BATCH_SIZE = 16
-IMG_SIZE = 64
 size = 64
 encoding_size = 64
-latent_dim = 64
+scalings = 3
+data_path = "../data/cat"
 
 # Specific training parameters
 remote = False
-samples = 10000
+samples = 10
 
 
 if remote:
@@ -34,16 +27,16 @@ else:
    bucket = None
 
 
-#dataset = layered_autoencoder.data.from_folder(DATA_PATH, IMG_SIZE, BATCH_SIZE, bucket)
-train_dataset, valid_dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
-n_batches = tf.data.experimental.cardinality(train_dataset)
+#train_dataset, valid_dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+#n_batches = tf.data.experimental.cardinality(train_dataset)
+train_dataset = layered_autoencoder.data.list_from_folder(data_path)
+n_batches = len(train_dataset)
 epochs = samples//n_batches + 1
 
-autoencoder = BlockedAutoencoder(IMG_SIZE, size, encoding_size, latent_dim,
-                                 scalings_per_step = 3)
+autoencoder = Autoencoder(size=size, n_out=encoding_size, n_scalings = scalings)
 
-#train_dataset = train_dataset.take(100)
-#valid_dataset = valid_dataset.take(10)
-autoencoder.train(train_dataset, valid_dataset, epochs, bucket = bucket, log_step = log_step,
-                  target_first = 0., target_increase = 0.01, save_every = save_every)
-autoencoder.save(bucket = bucket)
+#train_dataset = train_dataset.take(1)
+#valid_dataset = valid_dataset.take(1)
+autoencoder.train(train_dataset, epochs, n_batches)
+#validation_loss = autoencoder.evaluate(valid_data)
+autoencoder.save()

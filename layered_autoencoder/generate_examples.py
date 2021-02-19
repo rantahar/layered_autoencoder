@@ -33,8 +33,8 @@ for l in range(autoencoder.n_levels):
     reproduced.append(autoencoder.generate(images, l))
 
 if gan_path is not None:
-    discriminator = tf.keras.models.load_model(MODEL_PATH+"/discriminator")
-    generator = tf.keras.models.load_model(MODEL_PATH+"/generator")
+    discriminator = tf.keras.models.load_model(gan_path+"/discriminator")
+    generator = tf.keras.models.load_model(gan_path+"/generator")
 
     noise = tf.random.uniform([16, latent_dim], minval=-1)
     discriminated = discriminator(images)

@@ -35,7 +35,7 @@ samples = 500000
 SAVE_PATH = MODEL_PATH
 DATA_PATH = 'celeba'
 save_every = 5000
-log_step = 50
+log_step = 1
 
 remote = False
 
@@ -65,8 +65,8 @@ epochs = samples//n_batches + 1
 
 
 # Get the first encoder and decoder levels
-encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder0")
-decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder0")
+encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/level0/encoder")
+decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/level0/decoder")
 n_out = encoder.output_shape[-1]
 size = encoder.output_shape[1]
 

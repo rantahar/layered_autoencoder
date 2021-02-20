@@ -1,18 +1,18 @@
 
 # Stackable autoencoder
 
-The stackable autoencoder transforms an image into a smaller encoded
-representation. The dimensions of the image are scaled down and the original
-image is encoded into a number of output features. Since the encoding has the
-same number of dimensions as an image, several autoencoders can be stacked on
-top of each other and each layer trained sequentially.
+The stackable autoencoder encodes an image into a smaller image with
+a given number of features per pixel. It is otherwise a standard autoencoder,
+it consists of an encoder and a decoder, which are trained to reproduce the
+original image from the encoding.
 
-The model is mainly useful as a building block of several possible other models.
-A stackable autoencoder layer can be plugged directly on top of a variational
-autoencoder (VAE) or a generative adversarial model (GAN). The VAE or the GAN
-take the intermediate level as input (and output).
+Since the encoding has the same number of dimensions as an image, most model
+architectures with image input can be stacked on top of it. That is, they can
+take the encoded representation as input. So the stacked model could be a
+classifier, a variational autoencoder (VAE) or a generative adversarial model
+(GAN).
 The stackable model only needs to be trained once and
-reduces the computational effort of training the fundamental model.
+reduces the computational effort of training the other model.
 
 This is partly based on
 [arXiv:1906.11613 [cs.LG]](https://arxiv.org/abs/1906.11613), where a GAN was
@@ -21,8 +21,8 @@ trained using the intermediate representations of an autoencoder.
 ## Training
 
 Each stacked layer is a standard autencoder. It consists of an encoder `E` and
-a decoder `D`. It is trained to minimize the squared mean deviation between an
-original image `i` and the reproduction `D(E(i))`.
+a decoder `D`. It is trained to deviation between an original image `i` and the
+reproduction `D(E(i))`. 
 
 A subsequent stacked layer would have it's own encoder `E_2` and decoder `D_2`.
 It is trained to minimize the squared mean deviation between `E(i)` and

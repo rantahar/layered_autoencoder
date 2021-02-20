@@ -10,18 +10,20 @@ encoding_size = 64
 latent_dim = 64
 
 # Specific training parameters
-remote = False
 samples = 10000
 
 
-if remote:
+if len(sys.argv) > 2 and sys.argv[1] == "remote":
+   remote = True
    save_every = 5000
    log_step = 50
-   bucket = "rantahar-nn"
+   bucket = sys.argv[1]
 else:
+   remote = False
    save_every = 500
    log_step = 1
    bucket = None
+
 
 
 train_dataset, valid_dataset = stackable_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)

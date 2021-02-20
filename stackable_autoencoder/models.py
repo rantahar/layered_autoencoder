@@ -188,8 +188,13 @@ class Autoencoder():
          encoding_shape = self.encoder.output_shape[1:]
          self.decoder = make_decoder(encoding_shape, size, shape, n_scalings)
          self.autoencoder = combine_models((self.encoder, self.decoder))
+         if save_path is not None:
+            self.save_path = save_path
+         else:
+            self.save_path = f'autoencoder_{size}_{n_out}_{n_scalings}'
       else:
-         self.load(save_path)
+         self.save_path = save_path
+         self.load()
          self.autoencoder = combine_models((self.encoder, self.decoder))
 
    def encoding_shape(self):
@@ -201,13 +206,20 @@ class Autoencoder():
       x = self.decoder(x)
       return x
 
-   def save(self, path):
-      self.encoder.save(f"{path}/encoder")
-      self.decoder.save(f"{path}/decoder")
+   def save(self, bucket=None):
+      self.encoder.save(f"{self.save_path}/encoder")
+      self.decoder.save(f"{self.save_path}/decoder")
+      if bucket is not None:
+         print("Uploading autoencoder")
+         subprocess.call([
+          	'gsutil', 'cp', '-r',
+      		os.path.join(self.save_path),
+          	os.path.join('gs://', bucket)
+         ])
 
-   def load(self, path):
-      self.encoder = tf.keras.models.load_model(f"{path}/encoder")
-      self.decoder = tf.keras.models.load_model(f"{path}/decoder")
+   def load(self):
+      self.encoder = tf.keras.models.load_model(f"{self.save_path}/encoder")
+      self.decoder = tf.keras.models.load_model(f"{self.save_path}/decoder")
 
    def encode(self, x):
       return self.encoder(x)
@@ -225,7 +237,7 @@ class Autoencoder():
       self.optimizer.apply_gradients(zip(gradients, self.autoencoder.trainable_variables))
       return loss
 
-   def train(self, dataset, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5):
+   def train(self, dataset, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5, save_every = None, bucket = None):
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
       if batches is None:
@@ -240,6 +252,8 @@ class Autoencoder():
             if i % log_step == log_step - 1:
                timing = (end - start)/float(i+1)
                sys.stdout.write(f"\repoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}")
+            if save_every is not None and i % save_every == save_every - 1:
+               self.save(bucket)
             sys.stdout.flush()
          sys.stdout.write("\n")
          sys.stdout.flush()

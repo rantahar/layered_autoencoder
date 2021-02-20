@@ -54,7 +54,7 @@ if remote:
 	print(subprocess.list2cmdline(cmd))
 	subprocess.call(cmd)
 else:
-   save_every = 1000
+   save_every = 5000
    DATA_PATH = '../data/' + DATA_PATH
 
 

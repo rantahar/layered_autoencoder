@@ -60,32 +60,7 @@ def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
       print("Downloading data")
       cmd = [
           'gsutil', '-m', 'cp', '-r',
-          os.path.join('gs://', GCP_BUCKET, path+'.zip'),
-          './'
-      ]
-      print(subprocess.list2cmdline(cmd))
-      subprocess.call(cmd)
-      cmd = [
-          'unzip', path+'.zip'
-      ]
-      print(subprocess.list2cmdline(cmd))
-      subprocess.call(cmd)
-
-   if IMG_SIZE is not None:
-
-      dataset = image_dataset_from_directory(path, shuffle=True,
-         batch_size=BATCH_SIZE, image_size=(IMG_SIZE,IMG_SIZE))
-
-      dataset = dataset.map(normalize).map(flip)
-      return dataset
-
-def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
-
-   if bucket is not None:
-      print("Downloading data")
-      cmd = [
-          'gsutil', '-m', 'cp', '-r',
-          os.path.join('gs://', GCP_BUCKET, path+'.zip'),
+          os.path.join('gs://', bucket, path+'.zip'),
           './'
       ]
       print(subprocess.list2cmdline(cmd))

@@ -71,6 +71,7 @@ def downscale_block(x, size):
 def encoder_head(x, latent_dim):
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim*2)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Dense(latent_dim, activation='tanh')(x)
    return x
 
@@ -78,6 +79,7 @@ def encoder_head(x, latent_dim):
 def decoder_head(x, size, gcl):
    n_nodes = gcl * size * size
    x = layers.Dense(gcl)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Dense(n_nodes)(x)
    x = layers.Reshape((size, size, gcl))(x)
    return x
@@ -135,6 +137,34 @@ def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
 
       model = Model(inputs = input, outputs = rgb)
       return model
+
+
+# A small generator for the GAN experiment
+def make_generator(latent_dim, gcl, n_out, size = 8):
+   input = tf.keras.Input(shape=(latent_dim))
+   n_nodes = n_out * size * size
+   x = layers.Dense(gcl)(input)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   x = layers.Dense(gcl*2)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   x = layers.Dense(n_nodes)(x)
+   x = layers.Reshape((size, size, gcl))(x)
+   output = tf.keras.layers.Activation('tanh')(x)
+   return Model(inputs = input, outputs = output)
+
+# A small discriminator for the GAN experiment
+def make_began_encoder(latent_dim, gcl, n_out, size = 8):
+   input = tf.keras.Input(shape=(size, size, latent_dim))
+   n_nodes = n_out * size * size
+   x = layers.Flatten()(input)
+   x = layers.Dense(gcl*2)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   x = layers.Dense(gcl)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   x = layers.Dense(latent_dim)(x)
+   output = tf.keras.layers.Activation('tanh')(x)
+   return Model(inputs = input, outputs = output)
+
 
 
 # Combine a set of models

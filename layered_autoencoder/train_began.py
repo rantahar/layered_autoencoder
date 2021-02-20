@@ -23,13 +23,12 @@ id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-dcl = 32
-gcl = 32
+dcl = 64
+gcl = 64
 latent_dim = 64
-middle_latent_dim = 8
 
 AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_64_64_3'
-MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{middle_latent_dim}'
+MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{latent_dim}'
 
 # Specific training parameters
 samples = 500000
@@ -55,7 +54,7 @@ if remote:
 	print(subprocess.list2cmdline(cmd))
 	subprocess.call(cmd)
 else:
-   save_every = 5000
+   save_every = 1000
    DATA_PATH = '../data/' + DATA_PATH
 
 
@@ -68,20 +67,22 @@ epochs = samples//n_batches + 1
 # Get the first encoder and decoder levels
 encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder0")
 decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder0")
+n_out = encoder.output_shape[-1]
+size = encoder.output_shape[1]
 
 # dicriminator: combine small encoder and decoder
-d1 = models.make_encoder(encoder.output_shape[1:], dcl, latent_dim=latent_dim, n_scalings = 100)
-d1.summary()
-d2 = models.make_decoder(d1.output_shape[1:], gcl, encoder.output_shape[1:])
-d2.summary()
+small_encoder = models.make_began_encoder(latent_dim, gcl, n_out, size=size)
+small_encoder.summary()
+small_decoder = models.make_generator(latent_dim, gcl, n_out, size=size)
+small_decoder.summary()
 
-small_discriminator = models.combine_models((d1, d2))
+small_discriminator = models.combine_models((small_encoder, small_decoder))
 
 # full dicscriminator
 discriminator = models.combine_models((encoder, small_discriminator, decoder))
 
 # generator: just a small decoder
-small_generator = models.make_decoder(d1.output_shape[1:], gcl, encoder.output_shape[1:])
+small_generator = models.make_generator(latent_dim, gcl, n_out, size=size)
 small_generator.summary()
 
 # full generator
@@ -105,7 +106,7 @@ def train_discriminator(images, batch_size, Kt):
 
       fake_encodings = small_generator(z)
       fake_qualities = small_discriminator(fake_encodings)
-      z_d = d1(fake_encodings)
+      z_d = small_encoder(fake_encodings)
 
       fake_loss = tf.math.reduce_mean(tf.math.abs(fake_encodings - fake_qualities))
       id_loss = tf.math.reduce_mean(tf.math.abs(z_d - z))

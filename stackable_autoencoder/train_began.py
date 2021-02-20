@@ -23,11 +23,12 @@ id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
+encoded_size = 8
 dcl = 64
 gcl = 64
 latent_dim = 64
 
-AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_64_64_3'
+AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_64_3'
 MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{latent_dim}'
 
 # Specific training parameters
@@ -65,15 +66,15 @@ epochs = samples//n_batches + 1
 
 
 # Get the first encoder and decoder levels
-encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/level0/encoder")
-decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/level0/decoder")
+encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
+decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
 n_out = encoder.output_shape[-1]
 size = encoder.output_shape[1]
 
 # dicriminator: combine small encoder and decoder
-small_encoder = models.make_began_encoder(latent_dim, gcl, n_out, size=size)
+small_encoder = models.make_began_encoder(latent_dim, gcl, n_out, size=encoded_size)
 small_encoder.summary()
-small_decoder = models.make_generator(latent_dim, gcl, n_out, size=size)
+small_decoder = models.make_generator(latent_dim, gcl, n_out, size=encoded_size)
 small_decoder.summary()
 
 small_discriminator = models.combine_models((small_encoder, small_decoder))
@@ -82,7 +83,7 @@ small_discriminator = models.combine_models((small_encoder, small_decoder))
 discriminator = models.combine_models((encoder, small_discriminator, decoder))
 
 # generator: just a small decoder
-small_generator = models.make_generator(latent_dim, gcl, n_out, size=size)
+small_generator = models.make_generator(latent_dim, gcl, n_out, size=encoded_size)
 small_generator.summary()
 
 # full generator

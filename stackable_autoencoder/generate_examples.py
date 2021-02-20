@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow.keras.preprocessing import image_dataset_from_directory
-from stackable_autoencoder.models import BlockedAutoencoder
+from stackable_autoencoder.models import BlockedAutoencoder, Autoencoder
 import stackable_autoencoder.data
 
 if len(sys.argv) > 1:
@@ -26,40 +26,34 @@ BATCH_SIZE = 5
 dataset, _ = stackable_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 images = next(iter(dataset.take(1)))
 
-autoencoder = BlockedAutoencoder(save_path = autoencoder_path, load = True)
-
-reproduced = []
-for l in range(autoencoder.n_levels):
-    reproduced.append(autoencoder.generate(images, l))
+autoencoder = Autoencoder(save_path = autoencoder_path, load = True)
+reproduced = autoencoder.call(images)
 
 if gan_path is not None:
     discriminator = tf.keras.models.load_model(gan_path+"/discriminator")
     generator = tf.keras.models.load_model(gan_path+"/generator")
 
-    noise = tf.random.uniform([16, latent_dim], minval=-1)
+    noise = tf.random.uniform([BATCH_SIZE, latent_dim], minval=-1)
     discriminated = discriminator(images)
     generated = generator(noise)
 
 
 fig=plt.figure(figsize=(8, 8))
 
-n_im = autoencoder.n_levels + 2
+n_im = 4
 
-print(autoencoder.n_levels)
-
-for i in range(4):
-    fig.add_subplot(4, n_im, n_im*i+1)
+for i in range(BATCH_SIZE):
+    fig.add_subplot(BATCH_SIZE, n_im, n_im*i+1)
     im = (images[i] + 1) / 2
     plt.imshow(im)
-    for l in range(autoencoder.n_levels):
-        fig.add_subplot(4, n_im, n_im*i+l+2)
-        im = (reproduced[l][i] + 1) / 2
-        plt.imshow(im)
+    fig.add_subplot(BATCH_SIZE, n_im, n_im*i+2)
+    im = (reproduced[i] + 1) / 2
+    plt.imshow(im)
     if gan_path is not None:
-        fig.add_subplot(4, n_im, n_im*i+l+2)
+        fig.add_subplot(BATCH_SIZE, n_im, n_im*i+3)
         im = (discriminated[i] + 1) / 2
         plt.imshow(im)
-        fig.add_subplot(4, n_im, n_im*i+l+3)
+        fig.add_subplot(BATCH_SIZE, n_im, n_im*i+4)
         im = (generated[i] + 1) / 2
         plt.imshow(im)
 

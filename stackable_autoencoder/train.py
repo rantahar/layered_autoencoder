@@ -20,7 +20,7 @@ if len(sys.argv) > 2 and sys.argv[1] == "remote":
    remote = True
    save_every = 5000
    log_step = 50
-   bucket = sys.argv[1]
+   bucket = sys.argv[2]
 else:
    remote = False
    save_every = 500

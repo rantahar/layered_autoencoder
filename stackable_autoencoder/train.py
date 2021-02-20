@@ -7,6 +7,7 @@ import stackable_autoencoder.data
 
 
 BATCH_SIZE = 16
+IMG_SIZE = 64
 size = 64
 encoding_size = 64
 scalings = 3

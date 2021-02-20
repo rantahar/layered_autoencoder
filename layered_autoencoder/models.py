@@ -189,7 +189,7 @@ class Autoencoder():
          self.decoder = make_decoder(encoding_shape, size, shape, n_scalings)
          self.autoencoder = combine_models((self.encoder, self.decoder))
       else:
-         self.load(save_path, i)
+         self.load(save_path)
          self.autoencoder = combine_models((self.encoder, self.decoder))
 
    def encoding_shape(self):
@@ -201,13 +201,13 @@ class Autoencoder():
       x = self.decoder(x)
       return x
 
-   def save(self, path, i=""):
-      self.encoder.save(f"{path}/encoder{i}")
-      self.decoder.save(f"{path}/decoder{i}")
+   def save(self, path):
+      self.encoder.save(f"{path}/encoder")
+      self.decoder.save(f"{path}/decoder")
 
-   def load(self, path, i=""):
-      self.encoder = tf.keras.models.load_model(f"{path}/encoder{i}")
-      self.decoder = tf.keras.models.load_model(f"{path}/decoder{i}")
+   def load(self, path):
+      self.encoder = tf.keras.models.load_model(f"{path}/encoder")
+      self.decoder = tf.keras.models.load_model(f"{path}/decoder")
 
    def encode(self, x):
       return self.encoder(x)
@@ -300,7 +300,7 @@ class BlockedAutoencoder():
 
    def save(self, bucket = None):
       for i, l in enumerate(self.levels):
-         l.save(self.save_path, i)
+         l.save(f"{self.save_path}/level{i}")
       if bucket is not None:
          print("Uploading autoencoder")
          subprocess.call([
@@ -319,8 +319,8 @@ class BlockedAutoencoder():
          ])
       self.levels = []
       i = 0
-      while os.path.isdir(f"{self.save_path}/decoder{i}"):
-         level = Autoencoder(load = True, save_path = self.save_path, i=i)
+      while os.path.isdir(f"{self.save_path}/level{i}"):
+         level = Autoencoder(load = True, save_path = f"{self.save_path}/level{i}")
          self.levels.append(level)
          print("loaded level", i)
          i+=1

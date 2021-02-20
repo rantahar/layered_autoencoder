@@ -225,7 +225,7 @@ class Autoencoder():
       self.optimizer.apply_gradients(zip(gradients, self.autoencoder.trainable_variables))
       return loss
 
-   def train(self, dataset, epochs=1, batches=None, learning_rate = 0.0001, beta=0.5):
+   def train(self, dataset, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5):
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
       if batches is None:
@@ -236,9 +236,10 @@ class Autoencoder():
          for i, sample in enumerate(dataset):
             loss = self.train_step(sample)
             end = time.time()
-            timing = (end - start)/float(i+1)
 
-            sys.stdout.write(f"\repoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}")
+            if i % log_step == log_step - 1:
+               timing = (end - start)/float(i+1)
+               sys.stdout.write(f"\repoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}")
             sys.stdout.flush()
          sys.stdout.write("\n")
          sys.stdout.flush()

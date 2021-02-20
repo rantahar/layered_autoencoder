@@ -38,6 +38,6 @@ autoencoder = Autoencoder(size=size, n_out=encoding_size, n_scalings = scalings)
 
 #train_dataset = train_dataset.take(1)
 #valid_dataset = valid_dataset.take(1)
-autoencoder.train(train_dataset, epochs, n_batches)
+autoencoder.train(train_dataset, epochs, n_batches, log_step = log_step)
 #validation_loss = autoencoder.evaluate(valid_data)
 autoencoder.save()

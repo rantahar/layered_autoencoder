@@ -1,6 +1,6 @@
 import tensorflow as tf
-from layered_autoencoder.models import BlockedAutoencoder
-import layered_autoencoder.data
+from stackable_autoencoder.models import BlockedAutoencoder
+import stackable_autoencoder.data
 
 
 BATCH_SIZE = 16
@@ -24,7 +24,7 @@ else:
    bucket = None
 
 
-train_dataset, valid_dataset = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+train_dataset, valid_dataset = stackable_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 n_batches = tf.data.experimental.cardinality(train_dataset)
 epochs = samples//n_batches + 1
 

@@ -10,8 +10,8 @@ from tensorflow.keras import backend
 from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
-import layered_autoencoder.data
-from layered_autoencoder import models
+import stackable_autoencoder.data
+from stackable_autoencoder import models
 
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.0001
@@ -58,7 +58,7 @@ else:
    DATA_PATH = '../data/' + DATA_PATH
 
 
-dataset, _ = layered_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+dataset, _ = stackable_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
 n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 

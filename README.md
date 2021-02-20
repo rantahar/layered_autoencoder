@@ -14,21 +14,58 @@ classifier, a variational autoencoder (VAE) or a generative adversarial model
 The stackable model only needs to be trained once and
 reduces the computational effort of training the other model.
 
+Naturally the performance of the resulting full model is limited by the accuracy
+of the autoencoder it is stacked on top of.
+
 This is partly based on
 [arXiv:1906.11613 [cs.LG]](https://arxiv.org/abs/1906.11613), where a GAN was
 trained using the intermediate representations of an autoencoder.
+Architectrues that can be constructed this way are somewhat limited since the
+intermediate representations of the encoder and the decoder are different.
+
+## Usage
+
+To install the layered autoencoder run, clone the repository and in the
+resulting directory run
+```
+pip install .
+```
+
+A new autoencoder is created using
+```
+import stacked_autoencoder
+sae = stacked_autoencoder.Autoencoder(size=size, n_out=encoding_size, n_scalings = scalings)
+```
+This can be trained on a dataset or a list of tensors:
+```
+autoencoder.train(train_dataset, epochs)
+validation_loss = autoencoder.evaluate(validation_dataset)
+autoencoder.save()
+```
+
+You can also load an existing autoencoder using
+```
+sae = Autoencoder(save_path = path, load = True)
+```
+or just load the encoder and decoder separately using the standard API
+```
+encoder = tf.keras.models.load_model(path+"/encoder0")
+decoder = tf.keras.models.load_model(path+"/decoder0")
+```
 
 ## Training
 
-Each stacked layer is a standard autencoder. It consists of an encoder `E` and
-a decoder `D`. It is trained to deviation between an original image `i` and the
-reproduction `D(E(i))`. 
+Each stacked autencoder is a standard autencoder. It consists of an encoder `E`
+and
+a decoder `D`. It is trained to minimize the mean squared deviation between an
+original image `i` and the reproduction `D(E(i))`.
 
 A subsequent stacked layer would have it's own encoder `E_2` and decoder `D_2`.
 It is trained to minimize the squared mean deviation between `E(i)` and
 `D_2(E_2(E(i)))`.
 
-The full validation loss of the second layer is still `(i - D(D_2(E_2(E(i)))))^2`.
+The full validation loss of the second layer is still
+`(i - D(D_2(E_2(E(i)))))^2`.
 While it is sufficient to train each stacked layer independently, the full
 validation loss of the second layer will be larger than the validation loss
 of the first layer.

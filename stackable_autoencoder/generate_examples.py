@@ -38,6 +38,8 @@ if gan_path is not None:
     generated = generator(noise)
 
 
+print("autoencoder loss: ", autoencoder.evaluate_batch(images).numpy())
+
 fig=plt.figure(figsize=(8, 8))
 
 n_im = 4

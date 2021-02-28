@@ -58,19 +58,14 @@ def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
 
    if bucket is not None:
       print("Downloading data")
+      subprocess.call(['mkdir', '-p', path])
       cmd = [
           'gsutil', '-m', 'cp', '-r',
-          os.path.join('gs://', bucket, path+'.zip'),
-          './'
+          os.path.join('gs://', bucket, path),
+          os.path.join('./', path)
       ]
       print(subprocess.list2cmdline(cmd))
       subprocess.call(cmd)
-      cmd = [
-          'unzip', path+'.zip'
-      ]
-      print(subprocess.list2cmdline(cmd))
-      subprocess.call(cmd)
-
 
    dataset = image_dataset_from_directory(path, shuffle=True,
       batch_size=BATCH_SIZE, image_size=(IMG_SIZE,IMG_SIZE))
@@ -79,13 +74,13 @@ def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
    return dataset
 
 
-def list_from_folder(path, max_size=256, bucket = None):
+def list_from_folder(path, size=256, bucket = None):
       images = []
       for label in os.scandir(path):
          for file in os.scandir(label):
             img = load_image(file)
             img = normalize(img, 1)
-            img = canonical_size(img)
+            img = canonical_size(img, max_image_size=size)
             img = tf.convert_to_tensor(img[None,...])
             images.append(img)
       return images

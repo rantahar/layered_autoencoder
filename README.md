@@ -6,7 +6,8 @@ a given number of features per pixel. It is otherwise a standard autoencoder,
 it consists of an encoder and a decoder, which are trained to reproduce the
 original image from the encoding.
 
-Since the encoding has the same number of dimensions as an image, most model
+The idea is to simplify transfer learning between the autoencoder and other
+models. Since the encoding has the same form as an image, most model
 architectures with image input can be stacked on top of it. That is, they can
 take the encoded representation as input. So the stacked model could be a
 classifier, a variational autoencoder (VAE) or a generative adversarial model

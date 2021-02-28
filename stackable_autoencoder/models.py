@@ -13,6 +13,26 @@ from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
+
+# First a utility for logging
+log_start = time.time()
+log_file_name = f'log_{log_start}'
+log_file = open(f'log_{log_start}', 'w')
+def print_log(message, bucket = None):
+   global log_start
+   print(message)
+   if bucket is not None:
+      log_file.write(message+"\n")
+      dt = time.time() - log_start
+      if dt > 60:
+         subprocess.call([
+          	'gsutil', 'cp',
+      		os.path.join(log_file_name),
+          	os.path.join('gs://', bucket)
+         ])
+         log_start = time.time()
+
+
 init = RandomNormal(stddev=0.02)
 
 # Define some smaller utility block
@@ -139,31 +159,38 @@ def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
       return model
 
 
-# A small generator for the GAN experiment
-def make_generator(latent_dim, gcl, n_out, size = 8):
-   input = tf.keras.Input(shape=(latent_dim))
-   n_nodes = n_out * size * size
+# Dense resnet
+def make_resnet(input, gcl):
    x = layers.Dense(gcl)(input)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Dense(gcl*2)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Dense(n_nodes)(x)
-   x = layers.Reshape((size, size, gcl))(x)
-   output = tf.keras.layers.Activation('tanh')(x)
-   return Model(inputs = input, outputs = output)
-
-# A small discriminator for the GAN experiment
-def make_began_encoder(latent_dim, gcl, n_out, size = 8):
-   input = tf.keras.Input(shape=(size, size, latent_dim))
-   n_nodes = n_out * size * size
-   x = layers.Flatten()(input)
-   x = layers.Dense(gcl*2)(x)
    x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Dense(gcl)(x)
    x = layers.LeakyReLU(alpha=0.2)(x)
+   return x + input
+
+
+# A small generator for the GAN experiment
+def make_generator(latent_dim, gcl, colors, size = 8, name=None):
+   input = tf.keras.Input(shape=(latent_dim))
+   n_nodes = gcl * size * size
+   x = layers.Dense(latent_dim*2)(input)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   x = layers.Dense(n_nodes)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   x = layers.Reshape((size, size, gcl))(x)
+   x = conv_block(x, gcl)
+   output = layers.Conv2D(colors, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   return Model(inputs = input, outputs = output, name=name)
+
+# A small discriminator for the GAN experiment
+def make_began_encoder(latent_dim, gcl, colors, size = 8, name=None):
+   input = tf.keras.Input(shape=(size, size, colors))
+   x = conv_block(input, gcl)
+   x = layers.Flatten()(x)
+   x = layers.Dense(latent_dim*2)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Dense(latent_dim)(x)
    output = tf.keras.layers.Activation('tanh')(x)
-   return Model(inputs = input, outputs = output)
+   return Model(inputs = input, outputs = output, name=name)
 
 
 
@@ -182,7 +209,7 @@ def combine_models(steps):
 
 
 class Autoencoder():
-   def __init__(self, shape=(None,None,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None, i=None):
+   def __init__(self, shape=(None,None,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None, bucket=None):
       if not load:
          self.encoder = make_encoder(shape, size, n_out, n_scalings, latent_dim)
          encoding_shape = self.encoder.output_shape[1:]
@@ -192,6 +219,7 @@ class Autoencoder():
             self.save_path = save_path
          else:
             self.save_path = f'autoencoder_{size}_{n_out}_{n_scalings}'
+         print_log(self.save_path, bucket=bucket)
       else:
          self.save_path = save_path
          self.load()
@@ -237,7 +265,7 @@ class Autoencoder():
       self.optimizer.apply_gradients(zip(gradients, self.autoencoder.trainable_variables))
       return loss
 
-   def train(self, dataset, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5, save_every = None, bucket = None):
+   def train(self, dataset, valid_dataset = None, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5, save_every = None, bucket = None):
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
       if batches is None:
@@ -251,12 +279,15 @@ class Autoencoder():
 
             if i % log_step == log_step - 1:
                timing = (end - start)/float(i+1)
-               sys.stdout.write(f"\repoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}")
+               print_log(f"epoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}", bucket = bucket)
             if save_every is not None and i % save_every == save_every - 1:
                self.save(bucket)
-            sys.stdout.flush()
-         sys.stdout.write("\n")
-         sys.stdout.flush()
+
+         if valid_dataset is not None:
+            validation_loss = 0
+            for i, sample in enumerate(valid_dataset.take(100)):
+               validation_loss += self.evaluate_batch(sample)
+            print_log(f"epoch {e}, validation loss {validation_loss/100}")
 
    @tf.function
    def evaluate_batch(self, images):
@@ -266,10 +297,10 @@ class Autoencoder():
       return loss
 
    def evaluate(self, dataset):
-      n_batches = tf.data.experimental.cardinality(train_dataset)
+      n_batches = tf.data.experimental.cardinality(dataset).numpy()
       loss = 0
       for images in dataset:
-         loss += evaluate_batch(images)
+         loss += self.evaluate_batch(images)
       return loss / n_batches
 
 
@@ -381,6 +412,6 @@ class BlockedAutoencoder():
 
          valid_image = next(iter(valid_dataset.take(1)))
          valid_loss = self.evaluate(valid_image, l)
-         print(f"Full validation loss {valid_loss}")
+         print_log(f"Full validation loss {valid_loss}", bucket=bucket)
 
          self.save()

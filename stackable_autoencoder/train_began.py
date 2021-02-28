@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import subprocess
+import time
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
@@ -22,19 +23,21 @@ lambda_Kt = 0.001
 id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
-IMG_SIZE = 64
-encoded_size = 8
+IMG_SIZE = 128
+ae_size = 64
+n_out = 64
+latent_dim = 128
+steps = 4
 dcl = 64
 gcl = 64
-latent_dim = 64
 
-AUTOENCODER_PATH = f'autoencoder_{IMG_SIZE}_64_3'
-MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{latent_dim}'
+AUTOENCODER_PATH = f'autoencoder_{ae_size}_{n_out}_{steps}'
+MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{n_out}'
+DATA_PATH = f'celeba_{ae_size}_{n_out}_{steps}.npy'
 
 # Specific training parameters
 samples = 500000
 SAVE_PATH = MODEL_PATH
-DATA_PATH = 'celeba'
 save_every = 5000
 log_step = 1
 
@@ -56,39 +59,42 @@ if remote:
 	subprocess.call(cmd)
 else:
    save_every = 5000
-   DATA_PATH = '../data/' + DATA_PATH
 
 
-dataset, _ = stackable_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+data = np.load(DATA_PATH)
+dataset = tf.data.Dataset.from_tensor_slices(data).shuffle(128).batch(BATCH_SIZE)
+del data
+#dataset = stackable_autoencoder.data.dataset_from_folder("../data/celeba", IMG_SIZE, BATCH_SIZE)
 n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
-
 
 
 # Get the first encoder and decoder levels
 encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
 decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
 n_out = encoder.output_shape[-1]
-size = encoder.output_shape[1]
+img_size = IMG_SIZE
+for s in range(steps):
+	img_size //= 2
 
 # dicriminator: combine small encoder and decoder
-small_encoder = models.make_began_encoder(latent_dim, gcl, n_out, size=encoded_size)
+small_encoder = models.make_began_encoder(latent_dim, gcl, n_out, size=img_size, name="e1")
 small_encoder.summary()
-small_decoder = models.make_generator(latent_dim, gcl, n_out, size=encoded_size)
+full_encoder = models.combine_models((encoder, small_encoder))
+small_decoder = models.make_generator(latent_dim, gcl, n_out, size=img_size, name="d1")
 small_decoder.summary()
+full_decoder = models.combine_models((small_decoder, decoder))
 
 small_discriminator = models.combine_models((small_encoder, small_decoder))
 
 # full dicscriminator
 discriminator = models.combine_models((encoder, small_discriminator, decoder))
-
 # generator: just a small decoder
-small_generator = models.make_generator(latent_dim, gcl, n_out, size=encoded_size)
+small_generator = models.make_generator(latent_dim, gcl, n_out, size=img_size)
 small_generator.summary()
 
 # full generator
 generator = models.combine_models((small_generator, decoder))
-
 
 tf_lr = tf.Variable(learning_rate)
 disc_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
@@ -99,11 +105,10 @@ gen_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 @tf.function
 def train_discriminator(images, batch_size, Kt):
    z = tf.random.uniform([batch_size, latent_dim], minval=-1)
-   image_encodings = encoder(images)
 
    with tf.GradientTape() as tape:
-      real_quality = small_discriminator(image_encodings)
-      real_loss = tf.math.reduce_mean(tf.math.abs(real_quality - image_encodings))
+      real_quality = small_discriminator(images)
+      real_loss = tf.math.reduce_mean(tf.math.abs(real_quality - images))
 
       fake_encodings = small_generator(z)
       fake_qualities = small_discriminator(fake_encodings)
@@ -154,6 +159,7 @@ def save_models():
 # train the discriminator and decoder
 Kt = 0
 s = 0
+start_time = time.time()
 # manually enumerate epochs
 for i in range(epochs):
    for element in dataset:
@@ -172,9 +178,10 @@ for i in range(epochs):
       this_batch_size = element[0].shape[0]
       real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element, this_batch_size, Kt)
       train_generator()
+      time_per_step = (time.time() - start_time)/s
       if s%log_step == log_step-1:
-         print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f' %
-            (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence))
+         print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f, time per step=%.3f' %
+            (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence, time_per_step))
 
 print("DONE, saving...")
 save_models()

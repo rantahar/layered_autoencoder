@@ -1,0 +1,6 @@
+autoencoder_*
+began_*
+celeba_*
+stack_*
+*/__pycache__
+log_*

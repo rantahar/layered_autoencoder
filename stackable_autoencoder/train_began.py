@@ -15,12 +15,12 @@ import stackable_autoencoder.data
 from stackable_autoencoder import models
 
 GCP_BUCKET = "rantahar-nn"
-learning_rate = 0.0001
+learning_rate = 0.00008
 min_learning_rate = 0.00002
-lr_update_step = 10000
+lr_update_step = 100000
 gamma = 0.5
 lambda_Kt = 0.001
-id_weight = 0.1
+id_weight = 0.001
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 128
@@ -108,14 +108,14 @@ def train_discriminator(images, batch_size, Kt):
 
    with tf.GradientTape() as tape:
       real_quality = small_discriminator(images)
-      real_loss = tf.math.reduce_mean(tf.math.abs(real_quality - images))
+      real_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(real_quality - images), axis=3))
 
       fake_encodings = small_generator(z)
       fake_qualities = small_discriminator(fake_encodings)
       z_d = small_encoder(fake_encodings)
 
-      fake_loss = tf.math.reduce_mean(tf.math.abs(fake_encodings - fake_qualities))
-      id_loss = tf.math.reduce_mean(tf.math.abs(z_d - z))
+      fake_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(fake_encodings - fake_qualities), axis=3))
+      id_loss = tf.math.reduce_mean(tf.math.square(z_d - z))
       loss = real_loss - Kt * fake_loss + id_weight * id_loss
 
    gradients = tape.gradient(loss, small_discriminator.trainable_variables)
@@ -139,7 +139,7 @@ def train_generator():
    with tf.GradientTape() as tape:
       fake_encodings = small_generator(z)
       fake_qualities = small_discriminator(fake_encodings)
-      loss = tf.math.reduce_mean(tf.math.abs(fake_encodings - fake_qualities))
+      loss = tf.math.reduce_mean(tf.math.square(fake_encodings - fake_qualities))
 
    gradients = tape.gradient(loss, small_generator.trainable_variables)
    gen_optimizer.apply_gradients(zip(gradients, small_generator.trainable_variables))
@@ -180,7 +180,7 @@ for i in range(epochs):
       train_generator()
       time_per_step = (time.time() - start_time)/s
       if s%log_step == log_step-1:
-         print(' %d, %d/%d, r1=%.3f, g=%.3f, e=%.3f, Kt=%.3f, convergence=%.3f, time per step=%.3f' %
+         print(' %d, %d/%d, r1=%.5f, g=%.5f, e=%.3f, Kt=%.3f, convergence=%.3f, time per step=%.3f' %
             (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence, time_per_step))
 
 print("DONE, saving...")

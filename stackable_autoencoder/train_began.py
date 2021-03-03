@@ -20,51 +20,41 @@ min_learning_rate = 0.00002
 lr_update_step = 100000
 gamma = 0.5
 lambda_Kt = 0.001
-id_weight = 0.001
+id_weight = 0.1
 beta = 0.5
 BATCH_SIZE = 16
-IMG_SIZE = 128
+IMG_SIZE = 64
 ae_size = 64
 n_out = 64
 latent_dim = 128
-steps = 4
+steps = 3
 dcl = 64
 gcl = 64
 
+# set to True to calculate the losses from the original images
+loss_from_image = True
+save_every = 10
+
 AUTOENCODER_PATH = f'autoencoder_{ae_size}_{n_out}_{steps}'
 MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{n_out}'
-DATA_PATH = f'celeba_{ae_size}_{n_out}_{steps}.npy'
 
-# Specific training parameters
+if loss_from_image:
+   DATA_PATH = '../data/celeba'
+else:
+   DATA_PATH = f'celeba_{ae_size}_{n_out}_{steps}.npy'
+
 samples = 500000
 SAVE_PATH = MODEL_PATH
-save_every = 5000
 log_step = 1
 
-remote = False
 
-if remote:
-	print("Downloading data")
-	cmd = [
-    	'gsutil', '-m', 'cp', '-r',
-    	os.path.join('gs://', GCP_BUCKET, DATA_PATH+'.zip'),
-    	'./'
-	]
-	print(subprocess.list2cmdline(cmd))
-	subprocess.call(cmd)
-	cmd = [
-    	'unzip', DATA_PATH+'.zip'
-	]
-	print(subprocess.list2cmdline(cmd))
-	subprocess.call(cmd)
+if loss_from_image:
+   dataset = stackable_autoencoder.data.dataset_from_folder(DATA_PATH, IMG_SIZE, BATCH_SIZE)
 else:
-   save_every = 5000
+   data = np.load(DATA_PATH)
+   dataset = tf.data.Dataset.from_tensor_slices(data).shuffle(128).batch(BATCH_SIZE)
+   del data
 
-
-data = np.load(DATA_PATH)
-dataset = tf.data.Dataset.from_tensor_slices(data).shuffle(128).batch(BATCH_SIZE)
-del data
-#dataset = stackable_autoencoder.data.dataset_from_folder("../data/celeba", IMG_SIZE, BATCH_SIZE)
 n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
@@ -89,6 +79,7 @@ small_discriminator = models.combine_models((small_encoder, small_decoder))
 
 # full dicscriminator
 discriminator = models.combine_models((encoder, small_discriminator, decoder))
+
 # generator: just a small decoder
 small_generator = models.make_generator(latent_dim, gcl, n_out, size=img_size)
 small_generator.summary()
@@ -101,18 +92,27 @@ disc_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 gen_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
 
 
+if loss_from_image:
+   training_disciminator = discriminator
+   training_generator = generator
+   training_encoder = full_encoder
+else:
+   training_disciminator = small_discriminator
+   training_generator = small_generator
+   training_encoder = small_encoder
+
 
 @tf.function
 def train_discriminator(images, batch_size, Kt):
    z = tf.random.uniform([batch_size, latent_dim], minval=-1)
 
    with tf.GradientTape() as tape:
-      real_quality = small_discriminator(images)
+      real_quality = training_disciminator(images)
       real_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(real_quality - images), axis=3))
 
-      fake_encodings = small_generator(z)
-      fake_qualities = small_discriminator(fake_encodings)
-      z_d = small_encoder(fake_encodings)
+      fake_encodings = training_generator(z)
+      fake_qualities = training_disciminator(fake_encodings)
+      z_d = training_encoder(fake_encodings)
 
       fake_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(fake_encodings - fake_qualities), axis=3))
       id_loss = tf.math.reduce_mean(tf.math.square(z_d - z))
@@ -137,8 +137,8 @@ def train_generator():
    z = tf.random.uniform([BATCH_SIZE, latent_dim], minval=-1)
 
    with tf.GradientTape() as tape:
-      fake_encodings = small_generator(z)
-      fake_qualities = small_discriminator(fake_encodings)
+      fake_encodings = training_generator(z)
+      fake_qualities = training_disciminator(fake_encodings)
       loss = tf.math.reduce_mean(tf.math.square(fake_encodings - fake_qualities))
 
    gradients = tape.gradient(loss, small_generator.trainable_variables)
@@ -148,13 +148,6 @@ def train_generator():
 def save_models():
    discriminator.save(SAVE_PATH+"/discriminator")
    generator.save(SAVE_PATH+"/generator")
-   if remote:
-      print("Uploading model")
-      subprocess.call([
-    		'gsutil', 'cp', '-r',
-			os.path.join(SAVE_PATH),
-    		os.path.join('gs://', GCP_BUCKET)
-      ])
 
 # train the discriminator and decoder
 Kt = 0

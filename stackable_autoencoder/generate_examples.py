@@ -18,12 +18,13 @@ if len(sys.argv) > 2:
 else:
     gan_path = None
 
-
-latent_dim = 64
-IMG_SIZE = 64
+#data_path = '../data/gom/train/'
+data_path = '../data/celeba/'
+latent_dim = 128
+IMG_SIZE = 128
 BATCH_SIZE = 5
 
-dataset, _ = stackable_autoencoder.data.get_celeba(IMG_SIZE, BATCH_SIZE)
+dataset = stackable_autoencoder.data.dataset_from_folder(data_path, IMG_SIZE, BATCH_SIZE)
 images = next(iter(dataset.take(1)))
 
 autoencoder = Autoencoder(save_path = autoencoder_path, load = True)

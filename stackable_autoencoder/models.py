@@ -17,9 +17,11 @@ from tensorflow.keras.preprocessing import image_dataset_from_directory
 # First a utility for logging
 log_start = time.time()
 log_file_name = f'log_{log_start}'
-log_file = open(f'log_{log_start}', 'w')
+log_file = None
 def print_log(message, bucket = None):
    global log_start
+   if None:
+      log_file = open(f'log_{log_start}', 'w')
    print(message)
    if bucket is not None:
       log_file.write(message+"\n")

@@ -98,3 +98,7 @@ validation accuracy.
 A stackable GAN can provide a base for a boundary equilibrium GAN (BEGAN), since
 there is no difference between the intermediate representations of the encoder
 and the decoder.
+
+Time per batch with full BEGAN: 36.063
+Time per batch with encoding 8x8x64: 0.77
+Time per batch with encoding 8x8x32: 0.07

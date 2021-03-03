@@ -69,18 +69,10 @@ def to_rgb(x, n_colors = 3):
 
 # Upscale with a skip connection
 def upscale_skip_block(rgb, x, size, colors = 3):
-   x = conv_block(x, size)
    x = upscale(x)
+   x = conv_block(x, size)
    rgb = upscale(rgb) + to_rgb(x, colors)
    return rgb, x
-
-# convolution + downscale
-def downscale_block(x, size):
-   x = conv_block(x, size)
-   x = layers.Conv2D(size, (4,4), strides=(2,2), padding='same', kernel_initializer=init)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.BatchNormalization()(x)
-   return x
 
 # Downscale with resnet skip
 def downscale_block(x, size):
@@ -161,35 +153,22 @@ def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
       return model
 
 
-# Dense resnet
-def make_resnet(input, gcl):
-   x = layers.Dense(gcl)(input)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Dense(gcl)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   return x + input
-
-
 # A small generator for the GAN experiment
 def make_generator(latent_dim, gcl, colors, size = 8, name=None):
    input = tf.keras.Input(shape=(latent_dim))
-   n_nodes = gcl * size * size
-   x = layers.Dense(latent_dim*2)(input)
+   n_nodes = gcl * size * size //4
+   x = layers.Dense(n_nodes)(input)
    x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Dense(n_nodes)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
-   x = layers.Reshape((size, size, gcl))(x)
-   x = conv_block(x, gcl)
-   output = layers.Conv2D(colors, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
+   x = layers.Reshape((size//2, size//2, gcl))(x)
+   rgb = to_rgb(x, colors)
+   output, _ = upscale_skip_block(rgb, x, size, colors)
    return Model(inputs = input, outputs = output, name=name)
 
 # A small discriminator for the GAN experiment
 def make_began_encoder(latent_dim, gcl, colors, size = 8, name=None):
    input = tf.keras.Input(shape=(size, size, colors))
-   x = conv_block(input, gcl)
+   x = downscale_block(input, gcl)
    x = layers.Flatten()(x)
-   x = layers.Dense(latent_dim*2)(x)
-   x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Dense(latent_dim)(x)
    output = tf.keras.layers.Activation('tanh')(x)
    return Model(inputs = input, outputs = output, name=name)

@@ -20,7 +20,8 @@ log_file_name = f'log_{log_start}'
 log_file = None
 def print_log(message, bucket = None):
    global log_start
-   if None:
+   global log_file
+   if log_file is None:
       log_file = open(f'log_{log_start}', 'w')
    print(message)
    if bucket is not None:

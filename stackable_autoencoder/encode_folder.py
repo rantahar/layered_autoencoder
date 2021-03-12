@@ -13,7 +13,7 @@ from tensorflow.keras.preprocessing import image
 import stackable_autoencoder.data
 from stackable_autoencoder import models
 
-IMG_SIZE = 128
+IMG_SIZE = 64
 
 
 if len(sys.argv) > 1:

@@ -1,16 +1,9 @@
 import numpy as np
 import os
-import subprocess
 import time
+import matplotlib.pyplot as plt
 
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.models import Model
-from tensorflow.keras import layers
-from tensorflow.keras import backend
-from tensorflow.keras.initializers import RandomNormal
-
-from tensorflow.keras.preprocessing import image_dataset_from_directory
 import stackable_autoencoder.data
 from stackable_autoencoder import models
 
@@ -18,22 +11,22 @@ GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.00008
 min_learning_rate = 0.00002
 lr_update_step = 100000
-gamma = 0.5
+gamma = 0.1
 lambda_Kt = 0.001
-id_weight = 0.1
+constraint_weight = 0.001
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
-ae_size = 64
-n_out = 64
-latent_dim = 128
+ae_size = 32
+n_out = 32
+latent_dim = 32
 steps = 3
-dcl = 64
-gcl = 64
+gcl = 32
+dcl = gcl*2
 
 # set to True to calculate the losses from the original images
-loss_from_image = True
-save_every = 10
+loss_from_image = False
+save_every = 10000
 
 AUTOENCODER_PATH = f'autoencoder_{ae_size}_{n_out}_{steps}'
 MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{n_out}'
@@ -43,7 +36,7 @@ if loss_from_image:
 else:
    DATA_PATH = f'celeba_{ae_size}_{n_out}_{steps}.npy'
 
-samples = 500000
+samples = 300000
 SAVE_PATH = MODEL_PATH
 log_step = 1
 
@@ -115,8 +108,8 @@ def train_discriminator(images, batch_size, Kt):
       z_d = training_encoder(fake_encodings)
 
       fake_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(fake_encodings - fake_qualities), axis=3))
-      id_loss = tf.math.reduce_mean(tf.math.square(z_d - z))
-      loss = real_loss - Kt * fake_loss + id_weight * id_loss
+      contraint_loss = tf.math.reduce_mean(tf.math.square(z_d - z))
+      loss = real_loss - Kt * fake_loss + constraint_weight * contraint_loss
 
    gradients = tape.gradient(loss, small_discriminator.trainable_variables)
    disc_optimizer.apply_gradients(zip(gradients, small_discriminator.trainable_variables))
@@ -129,7 +122,7 @@ def train_discriminator(images, batch_size, Kt):
 
    convergence = real_loss + tf.abs(gamma * real_loss - fake_loss)
 
-   return real_loss, fake_loss, id_loss, Kt, convergence
+   return real_loss, fake_loss, contraint_loss, Kt, convergence
 
 
 @tf.function
@@ -148,6 +141,20 @@ def train_generator():
 def save_models():
    discriminator.save(SAVE_PATH+"/discriminator")
    generator.save(SAVE_PATH+"/generator")
+
+   noise = tf.random.uniform([16, latent_dim], minval=-1)
+   generated = generator(noise)
+
+   global s
+   fig, arr = plt.subplots(4, 4)
+   for i in range(16):
+      im = (generated[i] + 1) / 2
+      arr[i%4, i//4].imshow(im)
+   for ax in fig.axes:
+       ax.axis("off")
+   fig.tight_layout()
+   fig.savefig(f'sample_{s}.png')
+   plt.close(fig)
 
 # train the discriminator and decoder
 Kt = 0
@@ -168,13 +175,13 @@ for i in range(epochs):
             learning_rate = learning_rate/2
             tf_lr.assign(learning_rate)
 
-      this_batch_size = element[0].shape[0]
-      real_loss, fake_loss, id_loss, Kt, convergence = train_discriminator(element, this_batch_size, Kt)
+      this_batch_size = element.shape[0]
+      real_loss, fake_loss, c_loss, Kt, convergence = train_discriminator(element, this_batch_size, Kt)
       train_generator()
       time_per_step = (time.time() - start_time)/s
       if s%log_step == log_step-1:
          print(' %d, %d/%d, r1=%.5f, g=%.5f, e=%.3f, Kt=%.3f, convergence=%.3f, time per step=%.3f' %
-            (s, j, n_batches, real_loss, fake_loss, id_loss, Kt, convergence, time_per_step))
+            (s, j, n_batches, real_loss, fake_loss, c_loss, Kt, convergence, time_per_step))
 
 print("DONE, saving...")
 save_models()

@@ -20,8 +20,7 @@ else:
 
 #data_path = '../data/gom/train/'
 data_path = '../data/celeba/'
-latent_dim = 128
-IMG_SIZE = 128
+IMG_SIZE = 64
 BATCH_SIZE = 5
 
 dataset = stackable_autoencoder.data.dataset_from_folder(data_path, IMG_SIZE, BATCH_SIZE)
@@ -33,6 +32,8 @@ reproduced = autoencoder.call(images)
 if gan_path is not None:
     discriminator = tf.keras.models.load_model(gan_path+"/discriminator")
     generator = tf.keras.models.load_model(gan_path+"/generator")
+
+    latent_dim = generator.input_shape[-1]
 
     noise = tf.random.uniform([BATCH_SIZE, latent_dim], minval=-1)
     discriminated = discriminator(images)

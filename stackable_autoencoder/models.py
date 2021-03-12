@@ -154,7 +154,7 @@ def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
       return model
 
 
-# A small generator for the GAN experiment
+# A small generator for the GAN and VAE experiments
 def make_generator(latent_dim, gcl, colors, size = 8, name=None):
    input = tf.keras.Input(shape=(latent_dim))
    n_nodes = gcl * size * size //4
@@ -162,18 +162,29 @@ def make_generator(latent_dim, gcl, colors, size = 8, name=None):
    x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Reshape((size//2, size//2, gcl))(x)
    rgb = to_rgb(x, colors)
-   output, _ = upscale_skip_block(rgb, x, size, colors)
-   return Model(inputs = input, outputs = output, name=name)
+   rgb, x = upscale_skip_block(rgb, x, gcl, colors)
+   #x = conv_block(x, gcl)
+   #rgb += to_rgb(x, colors)
+   return Model(inputs = input, outputs = rgb, name=name)
 
-# A small discriminator for the GAN experiment
+# A small encoder for the BEGAN and VAE experiments
 def make_began_encoder(latent_dim, gcl, colors, size = 8, name=None):
    input = tf.keras.Input(shape=(size, size, colors))
+   #x = layers.Conv2D(gcl, (4,4), padding='same', kernel_initializer=init)(input)
+   #x = x + conv_block(x, gcl)
    x = downscale_block(input, gcl)
    x = layers.Flatten()(x)
    x = layers.Dense(latent_dim)(x)
    output = tf.keras.layers.Activation('tanh')(x)
    return Model(inputs = input, outputs = output, name=name)
 
+# A small discriminator for the WGAN
+def make_wgan_discriminator(gcl, colors, size = 8, name=None):
+   input = tf.keras.Input(shape=(size, size, colors))
+   x = downscale_block(input, gcl)
+   x = layers.Flatten()(x)
+   output = layers.Dense(1)(x)
+   return Model(inputs = input, outputs = output, name=name)
 
 
 # Combine a set of models

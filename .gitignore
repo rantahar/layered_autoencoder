@@ -1,6 +1,9 @@
 autoencoder_*
-began_*
+began_64*
+began_128*
 celeba_*
 stack_*
+wgan_*
+vae_*
 */__pycache__
 log_*

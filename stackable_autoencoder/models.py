@@ -59,8 +59,8 @@ def upscale(x):
 
 # Convolution + upscale
 def upscale_block(x, size):
-   x = conv_block(x, size)
    x = upscale(x)
+   x = conv_block(x, size)
    return x
 
 # Generate encoded output
@@ -70,8 +70,7 @@ def to_rgb(x, n_colors = 3):
 
 # Upscale with a skip connection
 def upscale_skip_block(rgb, x, size, colors = 3):
-   x = upscale(x)
-   x = conv_block(x, size)
+   x = upscale_block(x, size)
    rgb = upscale(rgb) + to_rgb(x, colors)
    return rgb, x
 

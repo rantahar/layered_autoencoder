@@ -54,18 +54,7 @@ def load_image(path):
    return image.img_to_array(img)
 
 
-def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
-
-   if bucket is not None:
-      print("Downloading data")
-      subprocess.call(['mkdir', '-p', path])
-      cmd = [
-          'gsutil', '-m', 'cp', '-r',
-          os.path.join('gs://', bucket, path),
-          os.path.join('./', path)
-      ]
-      print(subprocess.list2cmdline(cmd))
-      subprocess.call(cmd)
+def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE):
 
    dataset = image_dataset_from_directory(path, shuffle=True,
       batch_size=BATCH_SIZE, image_size=(IMG_SIZE,IMG_SIZE))
@@ -74,7 +63,7 @@ def dataset_from_folder(path, IMG_SIZE, BATCH_SIZE, bucket = None):
    return dataset
 
 
-def list_from_folder(path, size=256, bucket = None):
+def list_from_folder(path, size=256):
       images = []
       for label in os.scandir(path):
          for file in os.scandir(label):

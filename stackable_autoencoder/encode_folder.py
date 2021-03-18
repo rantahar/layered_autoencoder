@@ -28,8 +28,8 @@ else:
    print("provide data path")
    sys.exit(1)
 
-# Get the first encoder and decoder levels
-encoder = tf.keras.models.load_model(autoencoder_path+"/encoder")
+# Get the autoencoder
+autoencoder = models.Autoencoder(load = True, save_path = autoencoder_path)
 
 images = None
 for label in os.scandir(data_path):
@@ -40,14 +40,16 @@ for label in os.scandir(data_path):
       img = tf.image.resize(img, (IMG_SIZE,IMG_SIZE))
       img = stackable_autoencoder.data.normalize(img, 1)
       batch.append(img)
-      if len(batch) > 512:
+      if len(batch) >= 256:
          print(f"{i}/{n_files}")
-         encoded = encoder(tf.stack(batch)).numpy()
+         encoded, logvar = autoencoder.encode(tf.stack(batch))
+         encoded = encoded.numpy()
          batch = []
          if images is None:
             images = encoded
          else:
             images = np.concatenate((images, encoded), 0)
+         del encoded
 
 result = np.array(images)
 np.save("encoded.data", result)

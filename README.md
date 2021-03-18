@@ -1,28 +1,71 @@
 
 # Stackable autoencoder
 
-The stackable autoencoder encodes an image into a smaller image with
-a given number of features per pixel. It is otherwise a standard autoencoder,
-it consists of an encoder and a decoder, which are trained to reproduce the
-original image from the encoding.
+The stackable variational autoencoder (VAE) encodes an image into a smaller
+image with a given number of features per pixel. It is otherwise a standard
+VAE, it consists of an encoder and a decoder, which are trained to
+reproduce the original image from the encoding.
 
-The idea is to simplify transfer learning between the autoencoder and other
-models. Since the encoding has the same form as an image, most model
-architectures with image input can be stacked on top of it. That is, they can
-take the encoded representation as input. So the stacked model could be a
-classifier, a variational autoencoder (VAE) or a generative adversarial model
-(GAN).
-The stackable model only needs to be trained once and
-reduces the computational effort of training the other model.
+The idea is to speed up training a generative model (for example another VAE)
+by producing only the encoded state instead of a full image. The encoding is
+a sketch the stackable model can fill in. The smaller generative model only
+needs to produce the sketch.
 
-Naturally the performance of the resulting full model is limited by the accuracy
-of the autoencoder it is stacked on top of.
+This is of course similar to standard transfer learning. Transfer learning was
+applied to generative models for example in
+[arXiv:1906.11613 [cs.LG]](https://arxiv.org/abs/1906.11613).
+The stackable version could be faster if the generative model is trained to
+directly to reproduce the distribution of the sketches. The full image does not
+need to be produced during training.
 
-This is partly based on
-[arXiv:1906.11613 [cs.LG]](https://arxiv.org/abs/1906.11613), where a GAN was
-trained using the intermediate representations of an autoencoder.
-Architectrues that can be constructed this way are somewhat limited since the
-intermediate representations of the encoder and the decoder are different.
+## Does it work?
+
+Maybe? Kind of...
+
+Naturally the full model will suffer any inaccuracy of the stackable model.
+But this is quite small. Even after training the stackable model on a different
+dataset, it seems do reproduce Celeb_A images really well.
+
+This leaves two problems. If the loss function for the small generative model
+only depends on the encodings, any difference in the space of the encodings
+needs to translate simply into a difference in the space of the images.
+
+Using a variational autoencoder helps here, the distances in the encoding space
+have some meaning, but it does not fully solve the problem. Different features
+can still have different importance to the image space, so loss in one space
+does not map neatly into a loss in the other space.
+
+In effect this means that training takes more iterations, but the result in the
+limit of infinite data is the same. Since the iterations are a lot faster, the
+situation is not that bad. You can also refine using the full image loss.
+
+The other problem is that the small generative model still needs to be able to
+produce the sketch. So only some part of the full generative model can be
+trained using the auxiliary task of autoencoding. The rest still needs to be
+learned by the small model.
+
+So there is some limit to how small you can make the generative model. My
+examples are below this limit and still take a while to run on a laptop without
+a GPU.
+
+## Image and feature variation
+
+The implementation of the stackable model in the repository generates a mean
+encoding with the shape (IMG_SIZE/2^N, IMG_SIZE/2^N, N_encode) and a standard
+deviation with the shape (N_encode). The variation same variation is applied to
+the features on all the pixels in the encoding.
+
+Another simple option would be to produce a separate variance for each pixel
+pixel and feature. This would correspond to the assumption that each feature at
+each pixel in independent, which is not really a reasonable expectation.
+
+The sample image `samples/local_variation_vae.png` is the result of training a
+VAE on a stackable VAE with a separate variance for each pixel. The result has
+interesting aberrations, but cannot really say anything more useful about this.
+
+The current implementation instead assumes that each pixel maximally correlates
+with each other pixel. This is perhaps more sensible, but might not be the best
+prescription.
 
 ## Usage
 
@@ -34,8 +77,8 @@ pip install .
 
 A new autoencoder is created using
 ```
-import stacked_autoencoder
-sae = stacked_autoencoder.Autoencoder(size=size, n_out=encoding_size, n_scalings = scalings)
+import stacked_autoencoder.models
+sae = stacked_autoencoder.models.Autoencoder(size=size, n_out=encoding_size, n_scalings = scalings)
 ```
 This can be trained on a dataset or a list of tensors:
 ```
@@ -50,31 +93,16 @@ sae = Autoencoder(save_path = path, load = True)
 ```
 or just load the encoder and decoder separately using the standard API
 ```
-encoder = tf.keras.models.load_model(path+"/encoder0")
-decoder = tf.keras.models.load_model(path+"/decoder0")
+encoder = tf.keras.models.load_model(path+"/encoder")
+decoder = tf.keras.models.load_model(path+"/decoder")
 ```
 
-## Training
-
-Each stacked autencoder is a standard autencoder. It consists of an encoder `E`
-and
-a decoder `D`. It is trained to minimize the mean squared deviation between an
-original image `i` and the reproduction `D(E(i))`.
-
-A subsequent stacked layer would have it's own encoder `E_2` and decoder `D_2`.
-It is trained to minimize the squared mean deviation between `E(i)` and
-`D_2(E_2(E(i)))`.
-
-The full validation loss of the second layer is still
-`(i - D(D_2(E_2(E(i)))))^2`.
-While it is sufficient to train each stacked layer independently, the full
-validation loss of the second layer will be larger than the validation loss
-of the first layer.
 
 ## Stacked tests
 
 To verify that training models below a stacked layer is faster, I have run a
-couple of quick experiments. The one layer model is a standard autoencoder. The
+couple of quick experiments. These are stacks of standard autoencoders, not
+variation ones. The one layer model is a standard autoencoder. The
 two layer model has two stacked autencoders, with the first one reducing the
 image size by a factor of 8. Each layers in the three layer model reduces the
 image size by a factor of 4.
@@ -93,14 +121,17 @@ validation accuracy.
 | Three layer | 2    | (16, 16, 32) | 4              |  0.0178         | 0.130          |
 | Three layer | 3    | ( 4,  4, 32) | 4 (flatten)    |  0.0709         | 0.098          |
 
-## BEGAN
+
+## VAE experiment
+
+## BEGAN experiment
 
 A stackable GAN can provide a base for a boundary equilibrium GAN (BEGAN), since
 there is no difference between the intermediate representations of the encoder
 and the decoder.
 
 Time per batch with full BEGAN: 36
-Time per batch with loss from image, enconding 8x8x64: 12
-Time per batch with loss from image, enconding 8x8x32: 2.0
+Time per batch with loss from image, encoding 8x8x64: 12
+Time per batch with loss from image, encoding 8x8x32: 2.0
 Time per batch with loss from encoding, encoding 8x8x64: 0.027
 Time per batch with loss from encoding, encoding 8x8x32: 0.014

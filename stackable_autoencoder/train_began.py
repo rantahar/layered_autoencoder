@@ -18,17 +18,17 @@ beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
 ae_size = 32
-n_out = 32
-latent_dim = 32
+n_out = 64
+latent_dim = 128
 steps = 3
-gcl = 32
-dcl = gcl*2
+gcl = 64
+dcl = 128
 
-# set to True to calculate the losses from the original images
 loss_from_image = False
-save_every = 10000
+continue_training = False
+save_every = 1000
 
-AUTOENCODER_PATH = f'autoencoder_{ae_size}_{n_out}_{steps}'
+AUTOENCODER_PATH = f'gsvae_{ae_size}_{n_out}_{steps}'
 MODEL_PATH = f'began_{IMG_SIZE}_{dcl}_{gcl}_{n_out}'
 
 if loss_from_image:
@@ -52,33 +52,41 @@ n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
 
-# Get the first encoder and decoder levels
-encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
-decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
-n_out = encoder.output_shape[-1]
+# Get the encoder and decoder
+autoencoder = models.Autoencoder(load = True, save_path = AUTOENCODER_PATH)
+n_out = autoencoder.encoding_shape()[-1]
 img_size = IMG_SIZE
 for s in range(steps):
-	img_size //= 2
+   img_size //= 2
 
-# dicriminator: combine small encoder and decoder
-small_encoder = models.make_began_encoder(latent_dim, gcl, n_out, size=img_size, name="e1")
-small_encoder.summary()
-full_encoder = models.combine_models((encoder, small_encoder))
-small_decoder = models.make_generator(latent_dim, gcl, n_out, size=img_size, name="d1")
-small_decoder.summary()
-full_decoder = models.combine_models((small_decoder, decoder))
 
-small_discriminator = models.combine_models((small_encoder, small_decoder))
+if not continue_training:
+   # discriminator: combine small encoder and decoder
+   small_encoder = models.make_began_encoder(latent_dim, dcl, n_out, size=img_size, name="e1")
+   small_encoder.summary()
 
-# full dicscriminator
-discriminator = models.combine_models((encoder, small_discriminator, decoder))
+   # A small decoder
+   small_decoder = models.make_generator(latent_dim, gcl, n_out, size=img_size, name="d2")
+   small_decoder.summary()
 
-# generator: just a small decoder
-small_generator = models.make_generator(latent_dim, gcl, n_out, size=img_size)
-small_generator.summary()
+   # The discriminator
+   small_discriminator = models.combine_models((small_encoder, small_decoder))
 
-# full generator
-generator = models.combine_models((small_generator, decoder))
+   # generator: just a small decoder
+   small_generator = models.make_generator(latent_dim, gcl, n_out, size=img_size, name="g1")
+   small_generator.summary()
+
+else:
+   small_encoder = tf.keras.models.load_model(SAVE_PATH+"/small_encoder")
+   small_decoder = tf.keras.models.load_model(SAVE_PATH+"/small_decoder")
+   small_generator = tf.keras.models.load_model(SAVE_PATH+"/small_generator")
+
+
+full_encoder = models.combine_with_encoder(autoencoder.encoder, small_encoder)
+full_decoder = models.combine_models((small_decoder, autoencoder.decoder))
+discriminator = models.combine_models((full_encoder, full_decoder))
+generator = models.combine_models((small_generator, autoencoder.decoder))
+
 
 tf_lr = tf.Variable(learning_rate)
 disc_optimizer = tf.keras.optimizers.Adam(lr=tf_lr, beta_1=beta)
@@ -95,20 +103,22 @@ else:
    training_encoder = small_encoder
 
 
+
+
 @tf.function
 def train_discriminator(images, batch_size, Kt):
-   z = tf.random.uniform([batch_size, latent_dim], minval=-1)
+   z = tf.random.uniform([batch_size, latent_dim])
 
    with tf.GradientTape() as tape:
       real_quality = training_disciminator(images)
-      real_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(real_quality - images), axis=3))
+      real_loss = tf.math.reduce_mean(tf.math.reduce_sum((real_quality - images)**2, axis=3))
 
       fake_encodings = training_generator(z)
       fake_qualities = training_disciminator(fake_encodings)
       z_d = training_encoder(fake_encodings)
 
-      fake_loss = tf.math.reduce_mean(tf.math.reduce_sum(tf.math.square(fake_encodings - fake_qualities), axis=3))
-      contraint_loss = tf.math.reduce_mean(tf.math.square(z_d - z))
+      fake_loss = tf.math.reduce_mean(tf.math.reduce_sum((fake_encodings - fake_qualities)**2, axis=3))
+      contraint_loss = tf.math.reduce_mean((z_d - z)**2)
       loss = real_loss - Kt * fake_loss + constraint_weight * contraint_loss
 
    gradients = tape.gradient(loss, small_discriminator.trainable_variables)
@@ -132,7 +142,7 @@ def train_generator():
    with tf.GradientTape() as tape:
       fake_encodings = training_generator(z)
       fake_qualities = training_disciminator(fake_encodings)
-      loss = tf.math.reduce_mean(tf.math.square(fake_encodings - fake_qualities))
+      loss = tf.math.reduce_mean((fake_encodings - fake_qualities)**2)
 
    gradients = tape.gradient(loss, small_generator.trainable_variables)
    gen_optimizer.apply_gradients(zip(gradients, small_generator.trainable_variables))
@@ -141,6 +151,9 @@ def train_generator():
 def save_models():
    discriminator.save(SAVE_PATH+"/discriminator")
    generator.save(SAVE_PATH+"/generator")
+   small_encoder.save(SAVE_PATH+"/small_encoder")
+   small_decoder.save(SAVE_PATH+"/small_decoder")
+   small_generator.save(SAVE_PATH+"/small_generator")
 
    noise = tf.random.uniform([16, latent_dim], minval=-1)
    generated = generator(noise)

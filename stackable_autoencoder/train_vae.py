@@ -4,28 +4,28 @@ import time
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
+from tensorflow.keras.models import Model
 import stackable_autoencoder.data
-from stackable_autoencoder import models
 
 GCP_BUCKET = "rantahar-nn"
-learning_rate = 0.0008
+learning_rate = 0.00008
 min_learning_rate = 0.00002
 lr_update_step = 100000
 beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
 ae_size = 32
-n_out = 32
-latent_dim = 32
+n_out = 64
+latent_dim = 256
 steps = 3
-gcl = 32
-dcl = gcl
+gcl = 64
+dcl = 128
 
-# set to True to calculate the losses from the original images
 loss_from_image = False
+continue_training = False
 save_every = 10000
 
-AUTOENCODER_PATH = f'autoencoder_{ae_size}_{n_out}_{steps}'
+AUTOENCODER_PATH = f'gsvae_{ae_size}_{n_out}_{steps}'
 MODEL_PATH = f'vae_{IMG_SIZE}_{dcl}_{gcl}_{n_out}'
 
 if loss_from_image:
@@ -45,27 +45,36 @@ else:
    dataset = tf.data.Dataset.from_tensor_slices(data).shuffle(128).batch(BATCH_SIZE)
    del data
 
+# TODO: remove these from the dataset
+validation_set = dataset.take(20)
 n_batches = tf.data.experimental.cardinality(dataset)
 epochs = samples//n_batches + 1
 
 
-# Get the first encoder and decoder levels
-encoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/encoder")
-decoder = tf.keras.models.load_model(AUTOENCODER_PATH+"/decoder")
-n_out = encoder.output_shape[-1]
+# Get the encoder and decoder
+autoencoder = models.Autoencoder(load = True, save_path = AUTOENCODER_PATH)
+n_out = autoencoder.encoding_shape()[-1]
 img_size = IMG_SIZE
 for s in range(steps):
 	img_size //= 2
 
-# A small encoder (double the latent dimension, includes variation)
-small_encoder = models.make_began_encoder(2*latent_dim, gcl, n_out, size=img_size, name="e1")
-small_encoder.summary()
-full_encoder = models.combine_models((encoder, small_encoder))
 
-# A small decoder
-small_decoder = models.make_generator(latent_dim, gcl, n_out, size=img_size, name="d1")
-small_decoder.summary()
-full_decoder = models.combine_models((small_decoder, decoder))
+if not continue_training:
+   # A small encoder (double the latent dimension, includes variation)
+   small_encoder = models.make_vae_encoder(latent_dim, dcl, n_out,    size=img_size, name="e1")
+   small_encoder.summary()
+
+   # A small decoder
+   small_decoder = models.make_generator(latent_dim, gcl, n_out,    size=img_size, name="d1")
+   small_decoder.summary()
+
+else:
+   small_encoder = tf.keras.models.load_model(SAVE_PATH+"/small_encoder")
+   small_decoder = tf.keras.models.load_model(SAVE_PATH+"/small_decoder")
+
+
+full_encoder = models.combine_with_encoder(autoencoder.encoder,    small_encoder)
+full_decoder = models.combine_models((small_decoder,    autoencoder.decoder))
 
 
 tf_lr = tf.Variable(learning_rate)
@@ -82,7 +91,7 @@ else:
 
 
 def encode(x):
-    mean, logvar = tf.split(training_encoder(x), num_or_size_splits=2, axis=1)
+    mean, logvar = training_encoder(x)
     return mean, logvar
 
 def reparameterize(mean, logvar):
@@ -90,22 +99,31 @@ def reparameterize(mean, logvar):
     return eps * tf.exp(logvar * .5) + mean
 
 
+def feature_reproduction_loss(x, y):
+   return tf.math.reduce_sum((x - y)**2, axis=[3])
+
+def full_reproduction_loss(x, y):
+   xr = autoencoder.decoder(x)
+   yr = autoencoder.decoder(y)
+   return tf.math.reduce_sum((xr - yr)**2, axis=[3])
+
+
+reproduction_loss = feature_reproduction_loss
+
 
 @tf.function
 def train(images, batch_size):
-
    with tf.GradientTape() as tape:
       mean, logvar = encode(images)
       z = reparameterize(mean, logvar)
       decodings = training_decoder(z)
 
-      encoding_loss = tf.math.reduce_sum((decodings - images)**2, axis=[1,2,3])
-      #ble_loss = 0.5*tf.reduce_sum((z)**2 - (z-mean)**2*tf.exp(-logvar) - logvar)
-      ble_loss = -0.5*tf.reduce_sum(logvar - tf.exp(logvar) - mean**2 , axis=1)
+      encoding_loss = reproduction_loss(decodings, images)
+      ble_loss = -0.5*tf.reduce_mean(logvar - tf.exp(logvar) - mean**2 , axis=1)
 
       encoding_loss = tf.math.reduce_mean(encoding_loss)
       ble_loss = tf.math.reduce_mean(ble_loss)
-      loss = encoding_loss + 0.001*ble_loss
+      loss = encoding_loss + 0.01*ble_loss
 
    gradients = tape.gradient(loss, small_encoder.trainable_variables + small_decoder.trainable_variables)
    optimizer.apply_gradients(zip(gradients, small_encoder.trainable_variables + small_decoder.trainable_variables))
@@ -113,10 +131,20 @@ def train(images, batch_size):
    return encoding_loss, ble_loss
 
 
+@tf.function
+def eval_full_image(images, batch_size):
+   mean, logvar = encode(images)
+   z = reparameterize(mean, logvar)
+   decodings = training_decoder(z)
+   loss = full_reproduction_loss(decodings, images)
+   return tf.math.reduce_mean(loss)
+
 
 def save_models():
    full_encoder.save(SAVE_PATH+"/encoder")
    full_decoder.save(SAVE_PATH+"/decoder")
+   small_encoder.save(SAVE_PATH+"/small_encoder")
+   small_decoder.save(SAVE_PATH+"/small_decoder")
 
    noise = tf.random.normal([16, latent_dim])
    generated = full_decoder(noise)
@@ -144,6 +172,13 @@ for i in range(epochs):
       if s%save_every == save_every-1:
          save_models()
          print("saved")
+         val_batches = tf.data.experimental.cardinality(validation_set)
+         loss = 0
+         for valid_element in validation_set:
+            this_batch_size = valid_element.shape[0]
+            l = eval_full_image(valid_element, this_batch_size)
+            loss += l.numpy()
+         print(f"Full image validation loss {loss/20.0}")
 
       if s%lr_update_step == lr_update_step-1:
          if learning_rate > min_learning_rate:

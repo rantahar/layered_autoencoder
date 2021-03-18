@@ -13,32 +13,9 @@ from tensorflow.keras.initializers import RandomNormal
 
 from tensorflow.keras.preprocessing import image_dataset_from_directory
 
-
-# First a utility for logging
-log_start = time.time()
-log_file_name = f'log_{log_start}'
-log_file = None
-def print_log(message, bucket = None):
-   global log_start
-   global log_file
-   if log_file is None:
-      log_file = open(f'log_{log_start}', 'w')
-   print(message)
-   if bucket is not None:
-      log_file.write(message+"\n")
-      dt = time.time() - log_start
-      if dt > 60:
-         subprocess.call([
-          	'gsutil', 'cp',
-      		os.path.join(log_file_name),
-          	os.path.join('gs://', bucket)
-         ])
-         log_start = time.time()
-
-
 init = RandomNormal(stddev=0.02)
 
-# Define some smaller utility block
+# Define some smaller utility blocks
 
 # convolutionblock, with normalization and relu
 def conv_block(x, size):
@@ -101,13 +78,15 @@ def decoder_head(x, size, gcl):
 
 # Reduce the image size by a factor of 4 and encode each pixel to n_out numbers
 # If the image size drops below 7, map it to a single vector
-def make_encoder(shape, dcl, n_out=None, n_scalings = 2, latent_dim = None):
+def make_encoder(shape, dcl, n_out, n_scalings = 2, latent_dim = None):
    input = tf.keras.Input(shape=shape)
    size = shape[1]
    x = input
+   s = 1
    for i in range(n_scalings):
       if size is None:
-         x = downscale_block(x, dcl)
+         x = downscale_block(x, dcl*s)
+         s *= 2
       else:
          if size > 7:
            x = downscale_block(x, dcl)
@@ -115,8 +94,12 @@ def make_encoder(shape, dcl, n_out=None, n_scalings = 2, latent_dim = None):
          else:
            output = encoder_head(x, latent_dim)
            return Model(inputs = input, outputs = output)
-   output = layers.Conv2D(n_out, (4,4), activation='tanh', padding='same', kernel_initializer=init)(x)
-   return Model(inputs = input, outputs = output)
+   mean = layers.Conv2D(n_out, (4,4), padding='same', kernel_initializer=init)(x)
+   # Could use an attention mechanism. Here we just add up a contribution from
+   # each pixel
+   logvar = layers.Conv2D(n_out, (4,4), padding='same')(x)
+   logvar = tf.reduce_sum(logvar, axis=(1,2))
+   return Model(inputs = input, outputs = [mean, logvar])
 
 
 # Increase image size by a factor of 4 and encode each pixel to n_out numbers
@@ -124,13 +107,16 @@ def make_encoder(shape, dcl, n_out=None, n_scalings = 2, latent_dim = None):
 def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
    n_out = target_shape[-1]
    target_size = target_shape[1] # target shape is always an image
+   print(input_shape)
    input = tf.keras.Input(shape=input_shape)
 
    if target_size is None:
       x = input
+      s = 2**(n_scalings-1)
       rgb = to_rgb(x, n_out)
       for i in range(n_scalings):
-         rgb, x = upscale_skip_block(rgb, x, gcl, n_out)
+         rgb, x = upscale_skip_block(rgb, x, gcl*s, n_out)
+         s //= 2
       model = Model(inputs = input, outputs = rgb)
       return model
 
@@ -156,25 +142,35 @@ def make_decoder(input_shape, gcl, target_shape, n_scalings = None):
 # A small generator for the GAN and VAE experiments
 def make_generator(latent_dim, gcl, colors, size = 8, name=None):
    input = tf.keras.Input(shape=(latent_dim))
-   n_nodes = gcl * size * size //4
+   n_nodes = gcl * size * size // 4
    x = layers.Dense(n_nodes)(input)
    x = layers.LeakyReLU(alpha=0.2)(x)
    x = layers.Reshape((size//2, size//2, gcl))(x)
-   rgb = to_rgb(x, colors)
-   rgb, x = upscale_skip_block(rgb, x, gcl, colors)
+   x = upscale_block(x, gcl)
    #x = conv_block(x, gcl)
-   #rgb += to_rgb(x, colors)
-   return Model(inputs = input, outputs = rgb, name=name)
+   out = layers.Conv2D(colors, (4,4), padding='same', kernel_initializer=init)(x)
+   return Model(inputs = input, outputs = out, name=name)
+
+# A small encoder for the BEGAN and VAE experiments
+def make_vae_encoder(latent_dim, gcl, colors, size = 8, name=None):
+   input = tf.keras.Input(shape=(size, size, colors))
+   x = input
+   #x = conv_block(x, gcl)
+   x = downscale_block(x, gcl)
+   x = layers.Flatten()(x)
+   x = layers.Dense(2*latent_dim)(x)
+   x = layers.LeakyReLU(alpha=0.2)(x)
+   mean = layers.Dense(latent_dim)(x)
+   logvar = layers.Dense(latent_dim)(x)
+   return Model(inputs = input, outputs = [mean, logvar], name=name)
 
 # A small encoder for the BEGAN and VAE experiments
 def make_began_encoder(latent_dim, gcl, colors, size = 8, name=None):
    input = tf.keras.Input(shape=(size, size, colors))
-   #x = layers.Conv2D(gcl, (4,4), padding='same', kernel_initializer=init)(input)
-   #x = x + conv_block(x, gcl)
-   x = downscale_block(input, gcl)
+   x = conv_block(input, gcl)
+   x = downscale_block(x, gcl)
    x = layers.Flatten()(x)
-   x = layers.Dense(latent_dim)(x)
-   output = tf.keras.layers.Activation('tanh')(x)
+   output = layers.Dense(latent_dim)(x)
    return Model(inputs = input, outputs = output, name=name)
 
 # A small discriminator for the WGAN
@@ -197,67 +193,85 @@ def combine_models(steps):
    model = Model(inputs = input, outputs = output)
    return model
 
-
+def combine_with_encoder(encoder, extention):
+   input_shape = encoder.input_shape[1:]
+   input = tf.keras.Input(shape=input_shape)
+   mean, _ = encoder(input)
+   output = extention(mean)
+   model = Model(inputs = input, outputs = output)
+   return model
 
 
 class Autoencoder():
-   def __init__(self, shape=(None,None,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None, bucket=None):
+   def __init__(self, shape=(None,None,3), size=32, n_out=32, n_scalings = 2, latent_dim = None, load = False, save_path=None):
+
+      if save_path is not None:
+         self.save_path = save_path
+      else:
+         self.save_path = f'svae_{size}_{n_out}_{n_scalings}'
+         print(self.save_path)
       if not load:
          self.encoder = make_encoder(shape, size, n_out, n_scalings, latent_dim)
-         encoding_shape = self.encoder.output_shape[1:]
-         self.decoder = make_decoder(encoding_shape, size, shape, n_scalings)
-         self.autoencoder = combine_models((self.encoder, self.decoder))
-         if save_path is not None:
-            self.save_path = save_path
-         else:
-            self.save_path = f'autoencoder_{size}_{n_out}_{n_scalings}'
-         print_log(self.save_path, bucket=bucket)
+         enc_size = self.encoder.output_shape[0][1:]
+         self.decoder = make_decoder(enc_size, size, shape, n_scalings)
+         self.encoder.summary(line_length=150)
+         self.decoder.summary(line_length=150)
       else:
-         self.save_path = save_path
          self.load()
-         self.autoencoder = combine_models((self.encoder, self.decoder))
+      self.trainable_variables = self.encoder.trainable_variables + self.decoder.trainable_variables
 
    def encoding_shape(self):
-      return self.encoder.output_shape[1:]
+      enc_size = self.encoder.output_shape[0]
+      return enc_size
+
+   @tf.function
+   def encode(self, x):
+      mean, logvar = self.encoder(x)
+      return mean, logvar
+
+   @tf.function
+   def reparameterize(self, mean, logvar):
+      eps = tf.random.normal(shape=logvar.shape) * tf.exp(0.5*logvar)
+      s = mean.shape[1]
+      eps = tf.reshape(eps, (logvar.shape[0],1,1,logvar.shape[1]))
+      eps = tf.tile(eps, [1,s,s,1])
+      return eps + mean
+
+   @tf.function
+   def decode(self, x):
+      return self.decoder(x)
 
    @tf.function
    def call(self, x):
-      x = self.encoder(x)
-      x = self.decoder(x)
+      mean, logvar = self.encode(x)
+      x = self.decoder(mean)
       return x
 
-   def save(self, bucket=None):
+   def save(self):
       self.encoder.save(f"{self.save_path}/encoder")
       self.decoder.save(f"{self.save_path}/decoder")
-      if bucket is not None:
-         print("Uploading autoencoder")
-         subprocess.call([
-          	'gsutil', 'cp', '-r',
-      		os.path.join(self.save_path),
-          	os.path.join('gs://', bucket)
-         ])
 
    def load(self):
       self.encoder = tf.keras.models.load_model(f"{self.save_path}/encoder")
       self.decoder = tf.keras.models.load_model(f"{self.save_path}/decoder")
 
-   def encode(self, x):
-      return self.encoder(x)
-
-   def decode(self, x):
-      return self.decoder(x)
-
    @tf.function
    def train_step(self, images):
-      with tf.GradientTape(persistent=True) as tape:
-         reproduction = self.autoencoder(images)
-         loss = tf.math.reduce_mean(tf.math.square(reproduction - images))
+      with tf.GradientTape() as tape:
+         mean, logvar = self.encode(images)
+         z = self.reparameterize(mean, logvar)
+         decodings = self.decode(z)
 
-      gradients = tape.gradient(loss, self.autoencoder.trainable_variables)
-      self.optimizer.apply_gradients(zip(gradients, self.autoencoder.trainable_variables))
-      return loss
+         encoding_loss = tf.math.reduce_mean(tf.math.square(decodings - images))
+         elb_loss = 0.5*tf.math.reduce_mean(mean**2) + 0.5*tf.math.reduce_mean(tf.exp(logvar) - logvar)
 
-   def train(self, dataset, valid_dataset = None, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5, save_every = None, bucket = None):
+         loss = encoding_loss + 0.01*elb_loss
+
+      gradients = tape.gradient(loss, self.trainable_variables)
+      self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+      return encoding_loss, elb_loss
+
+   def train(self, dataset, valid_dataset = None, epochs=1, batches=None, log_step = 1, learning_rate = 0.0001, beta=0.5, save_every = None):
       self.learning_rate = tf.Variable(learning_rate)
       self.optimizer = tf.keras.optimizers.Adam(lr=self.learning_rate, beta_1=beta)
       if batches is None:
@@ -266,26 +280,26 @@ class Autoencoder():
          start_epoch = time.time()
          start = time.time()
          for i, sample in enumerate(dataset):
-            loss = self.train_step(sample)
+            loss, elb = self.train_step(sample)
             end = time.time()
 
             if i % log_step == log_step - 1:
                timing = (end - start)/float(i+1)
-               print_log(f"epoch {e}, step {i}/{batches}, loss {loss}, time per step {timing}", bucket = bucket)
+               print(f"epoch {e}, step {i}/{batches}, loss {loss}, elb {elb}, time per step {timing}")
             if save_every is not None and i % save_every == save_every - 1:
-               self.save(bucket)
+               self.save()
 
          if valid_dataset is not None:
             validation_loss = 0
             for i, sample in enumerate(valid_dataset.take(100)):
                validation_loss += self.evaluate_batch(sample)
-            print_log(f"epoch {e}, validation loss {validation_loss/100}")
+            print(f"epoch {e}, validation loss {validation_loss/100}")
 
    @tf.function
    def evaluate_batch(self, images):
-      x = self.encode(images)
-      x = self.decode(x)
-      loss = tf.keras.losses.MeanSquaredError()(x, images)
+      mean, logvar = self.encode(images)
+      decodings = self.decode(mean)
+      loss = tf.keras.losses.MeanSquaredError()(decodings, images)
       return loss
 
    def evaluate(self, dataset):
@@ -336,25 +350,11 @@ class BlockedAutoencoder():
       self.n_levels = len(self.levels)
 
 
-   def save(self, bucket = None):
+   def save(self):
       for i, l in enumerate(self.levels):
          l.save(f"{self.save_path}/level{i}")
-      if bucket is not None:
-         print("Uploading autoencoder")
-         subprocess.call([
-          	'gsutil', 'cp', '-r',
-      		os.path.join(self.save_path),
-          	os.path.join('gs://', bucket)
-         ])
 
-   def load(self, bucket = None):
-      if bucket is not None:
-         print("Downloading autoencoder")
-         subprocess.call([
-          	'gsutil', 'cp', '-r',
-      		os.path.join(self.save_path),
-          	os.path.join('gs://', bucket)
-         ])
+   def load(self):
       self.levels = []
       i = 0
       while os.path.isdir(f"{self.save_path}/level{i}"):
@@ -383,7 +383,7 @@ class BlockedAutoencoder():
       return x
 
 
-   def train(self, train_dataset, valid_dataset, epochs, bucket = None, log_step = 50,
+   def train(self, train_dataset, valid_dataset, epochs, log_step = 50,
              target_first = 0, target_increase = 0,
              save_every = 5000, learning_rate = 0.0001, lr_update_step = 10000,
              min_learning_rate = 0.00002, level = None):
@@ -404,6 +404,6 @@ class BlockedAutoencoder():
 
          valid_image = next(iter(valid_dataset.take(1)))
          valid_loss = self.evaluate(valid_image, l)
-         print_log(f"Full validation loss {valid_loss}", bucket=bucket)
+         print(f"Full validation loss {valid_loss}")
 
          self.save()

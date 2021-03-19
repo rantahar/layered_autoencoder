@@ -137,6 +137,8 @@ A stackable GAN can provide a base for a boundary equilibrium GAN (BEGAN), since
 there is no difference between the intermediate representations of the encoder
 and the decoder.
 
-Time per batch with full BEGAN: 36
-Time per batch with loss from image, encoding 8x8x64: 12
-Time per batch with loss from encoding, encoding 8x8x64: 0.134
+| Run | time/s |
+|-----|--------|
+| Full BEGAN | 36 |
+| Loss from image, encoding 8x8x64 | 12 |
+| Loss from encoding | encoding 8x8x64: 0.134 |

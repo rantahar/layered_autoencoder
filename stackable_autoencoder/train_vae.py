@@ -4,8 +4,8 @@ import time
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
-from tensorflow.keras.models import Model
 import stackable_autoencoder.data
+from stackable_autoencoder import models
 
 GCP_BUCKET = "rantahar-nn"
 learning_rate = 0.00008
@@ -15,7 +15,7 @@ beta = 0.5
 BATCH_SIZE = 16
 IMG_SIZE = 64
 ae_size = 32
-n_out = 64
+n_out = 32
 latent_dim = 256
 steps = 3
 gcl = 64
@@ -25,7 +25,7 @@ loss_from_image = False
 continue_training = False
 save_every = 10000
 
-AUTOENCODER_PATH = f'gsvae_{ae_size}_{n_out}_{steps}'
+AUTOENCODER_PATH = f'svae_{ae_size}_{n_out}_{steps}'
 MODEL_PATH = f'vae_{IMG_SIZE}_{dcl}_{gcl}_{n_out}'
 
 if loss_from_image:
@@ -100,7 +100,7 @@ def reparameterize(mean, logvar):
 
 
 def feature_reproduction_loss(x, y):
-   return tf.math.reduce_sum((x - y)**2, axis=[3])
+   return tf.math.reduce_mean((x - y)**2, axis=[3])
 
 def full_reproduction_loss(x, y):
    xr = autoencoder.decoder(x)
@@ -123,7 +123,7 @@ def train(images, batch_size):
 
       encoding_loss = tf.math.reduce_mean(encoding_loss)
       ble_loss = tf.math.reduce_mean(ble_loss)
-      loss = encoding_loss + 0.01*ble_loss
+      loss = encoding_loss + 0.1*ble_loss
 
    gradients = tape.gradient(loss, small_encoder.trainable_variables + small_decoder.trainable_variables)
    optimizer.apply_gradients(zip(gradients, small_encoder.trainable_variables + small_decoder.trainable_variables))

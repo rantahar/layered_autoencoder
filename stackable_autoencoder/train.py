@@ -9,7 +9,7 @@ import stackable_autoencoder.data
 BATCH_SIZE = 16
 IMG_SIZE = 64
 size = 32
-encoding_size = 128
+encoding_size = 32
 scalings = 3
 learning_rate = 0.00005
 #train_data_path = "OpenImagesDataset256/train"

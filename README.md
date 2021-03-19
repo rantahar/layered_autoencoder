@@ -20,7 +20,16 @@ need to be produced during training.
 
 ## Does it work?
 
-Maybe? Kind of...
+Maybe?
+
+A stackable VAE trained on the
+[Open Image Dataset](https://opensource.google/projects/open-images-dataset)
+can reproduce images from the Celeb_A dataset quite well.
+I trained a VAE to on the encoded representation in a
+couple of hours on my laptop. There are examples of these
+images in [samples/global_variation_vae.png].
+Training the small model several orders of magnitude
+faster than training the full model.
 
 Naturally the full model will suffer any inaccuracy of the stackable model.
 But this is quite small. Even after training the stackable model on a different
@@ -59,7 +68,7 @@ Another simple option would be to produce a separate variance for each pixel
 pixel and feature. This would correspond to the assumption that each feature at
 each pixel in independent, which is not really a reasonable expectation.
 
-The sample image `samples/local_variation_vae.png` is the result of training a
+The sample image [samples/local_variation_vae.png] is the result of training a
 VAE on a stackable VAE with a separate variance for each pixel. The result has
 interesting aberrations, but cannot really say anything more useful about this.
 
@@ -122,8 +131,6 @@ validation accuracy.
 | Three layer | 3    | ( 4,  4, 32) | 4 (flatten)    |  0.0709         | 0.098          |
 
 
-## VAE experiment
-
 ## BEGAN experiment
 
 A stackable GAN can provide a base for a boundary equilibrium GAN (BEGAN), since
@@ -132,6 +139,4 @@ and the decoder.
 
 Time per batch with full BEGAN: 36
 Time per batch with loss from image, encoding 8x8x64: 12
-Time per batch with loss from image, encoding 8x8x32: 2.0
-Time per batch with loss from encoding, encoding 8x8x64: 0.027
-Time per batch with loss from encoding, encoding 8x8x32: 0.014
+Time per batch with loss from encoding, encoding 8x8x64: 0.134

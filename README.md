@@ -130,7 +130,7 @@ validation accuracy.
 | Three layer | 2    | (16, 16, 32) | 4              |  0.0178         | 0.130          |
 | Three layer | 3    | ( 4,  4, 32) | 4 (flatten)    |  0.0709         | 0.098          |
 
-
+<!--
 ## BEGAN experiment
 
 A stackable GAN can provide a base for a boundary equilibrium GAN (BEGAN), since
@@ -142,3 +142,4 @@ and the decoder.
 | Full BEGAN | 36 |
 | Loss from image, encoding 8x8x64 | 12 |
 | Loss from encoding | encoding 8x8x64: 0.134 |
+-->
